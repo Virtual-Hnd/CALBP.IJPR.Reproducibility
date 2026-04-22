@@ -1,0 +1,1736 @@
+#!/usr/bin/env python3
+"""
+dashboard.py — Live monitoring dashboard for DOE L9 campaign.
+
+Usage:
+    python scripts/dashboard.py              # http://localhost:8050
+    python scripts/dashboard.py --port 9000  # custom port
+"""
+
+import argparse
+import csv
+import json
+import http.server
+import sys
+from pathlib import Path
+from datetime import datetime
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+RESULTS_DIR = PROJECT_ROOT / "results_doe_L9"
+SOLUTIONS_DIR = RESULTS_DIR / "solutions"
+
+ALL_CONFIGS = [f"c{i:02d}" for i in range(1, 10)]
+ALL_MODES = ["HI", "CI", "SEH", "SEC", "SU", "SIH", "SIC"]
+
+NUMERIC_FIELDS = {
+    "n_tasks", "n_pareto", "n_certified", "config_id",
+    "total_cpu_s", "min_cost", "max_cost", "min_energy", "max_energy",
+    "cost_range", "energy_range", "gap_mean_pct", "gap_max_pct",
+    "pct_HI", "pct_CI", "pct_SEH", "pct_SEC", "pct_SU", "pct_SIH", "pct_SIC",
+    "alpha_ci", "beta_su", "gamma_setup", "sigma_si", "R_e", "C_c", "T", "seed",
+}
+
+
+def _to_num(val):
+    if val is None or val == "":
+        return None
+    try:
+        f = float(val)
+        return int(f) if f == int(f) and "." not in str(val) else f
+    except (ValueError, TypeError):
+        return val
+
+
+def scan_results() -> dict:
+    """Collect all dashboard data from results_doe_L9/."""
+    data = {
+        "timestamp": datetime.now().isoformat(),
+        "configs": ALL_CONFIGS,
+        "instances": [],
+        "total_expected": 0,
+        "runs": {},
+        "pareto_fronts": {},
+        "summary": {},
+    }
+    instance_set = set()
+
+    # 1. Read manifest for expected instances
+    manifest = RESULTS_DIR / "doe_manifest.csv"
+    if manifest.exists():
+        try:
+            with open(manifest, encoding="utf-8") as f:
+                for row in csv.DictReader(f):
+                    instance_set.add(row["base_instance"])
+        except Exception:
+            pass
+
+    # 2. Scan solution directories (primary real-time source)
+    if SOLUTIONS_DIR.exists():
+        for d in sorted(SOLUTIONS_DIR.iterdir()):
+            if not d.is_dir():
+                continue
+            run_name = d.name
+
+            # run_info.json → high-level status
+            info_file = d / "run_info.json"
+            if info_file.exists():
+                try:
+                    info = json.loads(info_file.read_text(encoding="utf-8"))
+                    cfg = info.get("config", {})
+                    ind = info.get("indicators", {})
+                    run_data = {
+                        "run_name": run_name,
+                        "base_instance": info.get("base_instance"),
+                        "source": info.get("source"),
+                        "n_tasks": info.get("n_tasks"),
+                        "T": info.get("T"),
+                        "config_name": cfg.get("config_name"),
+                        "config_id": cfg.get("config_id"),
+                        "alpha_ci": cfg.get("alpha_ci"),
+                        "beta_su": cfg.get("beta_su"),
+                        "gamma_setup": cfg.get("gamma_setup"),
+                        "sigma_si": cfg.get("sigma_si"),
+                        "R_e": cfg.get("R_e"),
+                        "C_c": cfg.get("C_c"),
+                        "seed": cfg.get("seed"),
+                        "status": info.get("status"),
+                        "n_pareto": info.get("n_pareto"),
+                        "n_certified": info.get("n_certified"),
+                        "total_cpu_s": info.get("total_cpu_s"),
+                        "gap_mean_pct": info.get("gap_mean_pct"),
+                        "gap_max_pct": info.get("gap_max_pct"),
+                        "timestamp": info.get("timestamp"),
+                        # Quality indicators
+                        "HV_abs": ind.get("HV_abs"),
+                        "HV_norm": ind.get("HV_norm"),
+                        "ref_cost": ind.get("ref_cost"),
+                        "ref_energy": ind.get("ref_energy"),
+                        "spacing": ind.get("spacing"),
+                        "spread_delta": ind.get("spread_delta"),
+                        "max_spread": ind.get("max_spread"),
+                        "cost_range": ind.get("cost_range"),
+                        "energy_range": ind.get("energy_range"),
+                    }
+                    data["runs"][run_name] = run_data
+                    if run_data["base_instance"]:
+                        instance_set.add(run_data["base_instance"])
+                except Exception:
+                    pass
+
+            # pareto_front.csv → per-point data + mode shares
+            pf_file = d / "pareto_front.csv"
+            if pf_file.exists():
+                try:
+                    points = []
+                    with open(pf_file, encoding="utf-8") as f:
+                        for row in csv.DictReader(f):
+                            points.append({k: _to_num(v) for k, v in row.items()})
+                    data["pareto_fronts"][run_name] = points
+
+                    if points and run_name in data["runs"]:
+                        rd = data["runs"][run_name]
+                        # mode shares
+                        total_t = 0
+                        ms = {m: 0 for m in ALL_MODES}
+                        for pt in points:
+                            for m in ALL_MODES:
+                                c = pt.get(m, 0) or 0
+                                ms[m] += c
+                                total_t += c
+                        if total_t > 0:
+                            for m in ALL_MODES:
+                                rd[f"pct_{m}"] = round(ms[m] / total_t * 100, 2)
+                        # cost / energy range
+                        costs = [pt["cost"] for pt in points if pt.get("cost") is not None]
+                        eners = [pt["energy"] for pt in points if pt.get("energy") is not None]
+                        if costs:
+                            rd["min_cost"] = min(costs)
+                            rd["max_cost"] = max(costs)
+                            rd["cost_range"] = round(max(costs) - min(costs), 2)
+                        if eners:
+                            rd["min_energy"] = min(eners)
+                            rd["max_energy"] = max(eners)
+                            rd["energy_range"] = round(max(eners) - min(eners), 2)
+                except Exception:
+                    pass
+
+    # 3. Also merge master CSV if available (post-execution)
+    master = RESULTS_DIR / "doe_results.csv"
+    if master.exists():
+        try:
+            with open(master, encoding="utf-8") as f:
+                for row in csv.DictReader(f):
+                    rn = row.get("run_name", "")
+                    if rn and rn not in data["runs"]:
+                        data["runs"][rn] = {
+                            k: (_to_num(v) if k in NUMERIC_FIELDS else v)
+                            for k, v in row.items()
+                        }
+                        if row.get("base_instance"):
+                            instance_set.add(row["base_instance"])
+        except Exception:
+            pass
+
+    # 4. Summary
+    data["instances"] = sorted(instance_set)
+    data["total_expected"] = len(data["instances"]) * len(ALL_CONFIGS)
+
+    ok = [r for r in data["runs"].values() if r.get("status") == "OK"]
+    err = [r for r in data["runs"].values() if r.get("status") not in ("OK", None)]
+    cpus = [float(r["total_cpu_s"]) for r in ok if r.get("total_cpu_s") is not None]
+    pfs = [int(r["n_pareto"]) for r in ok if r.get("n_pareto") is not None]
+    completed = len(data["runs"])
+    pending = max(0, data["total_expected"] - completed)
+    avg_cpu = sum(cpus) / len(cpus) if cpus else 0
+
+    data["summary"] = {
+        "completed": completed,
+        "successful": len(ok),
+        "failed": len(err),
+        "pending": pending,
+        "total_cpu_s": round(sum(cpus), 1),
+        "avg_cpu_s": round(avg_cpu, 1),
+        "avg_pf_size": round(sum(pfs) / len(pfs), 2) if pfs else 0,
+        "eta_s": round(avg_cpu * pending, 0) if avg_cpu > 0 else None,
+    }
+
+    return data
+
+
+# ═══════════════════════════════════════════════════════════════
+# HTML
+# ═══════════════════════════════════════════════════════════════
+
+HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DOE L9 — Dashboard</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+:root {
+  --bg: #f1f5f9; --card: #ffffff; --border: #e2e8f0;
+  --text: #1e293b; --muted: #64748b; --accent: #2563eb;
+  --ok: #16a34a; --err: #dc2626; --warn: #d97706; --pending: #cbd5e1;
+  --radius: 10px; --shadow: 0 1px 3px rgba(0,0,0,.08);
+  --sidebar-w: 520px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+       background: var(--bg); color: var(--text); line-height: 1.5; }
+
+/* Header */
+header { background: linear-gradient(135deg, #1e3a5f 0%, #1e40af 100%);
+         color: #fff; padding: 16px 28px; display: flex;
+         justify-content: space-between; align-items: center;
+         position: sticky; top: 0; z-index: 100; }
+header h1 { font-size: 1.3rem; font-weight: 700; letter-spacing: .3px; }
+header h1 span { font-weight: 400; opacity: .7; }
+.hdr-right { display: flex; gap: 18px; align-items: center; font-size: .85rem; }
+.hdr-right label { cursor: pointer; display: flex; align-items: center; gap: 6px; }
+#last-refresh { opacity: .7; }
+
+/* Tab navigation */
+.tab-nav { display: flex; gap: 2px; background: var(--border); padding: 3px;
+           border-radius: 8px; margin-bottom: 18px; width: fit-content; }
+.tab-btn { padding: 8px 20px; border: none; background: transparent; cursor: pointer;
+           font-size: .85rem; font-weight: 500; border-radius: 6px; color: var(--muted);
+           transition: all .2s; }
+.tab-btn.active { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
+.tab-btn:hover:not(.active) { color: var(--text); }
+.src-btn { padding: 5px 14px; border: 1px solid var(--border); background: var(--card);
+           cursor: pointer; font-size: .8rem; border-radius: 6px; color: var(--muted);
+           transition: all .2s; }
+.src-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.src-btn:hover:not(.active) { background: #eef2f7; color: var(--text); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* Main */
+main { max-width: 1500px; margin: 0 auto; padding: 20px 24px 60px; }
+
+/* KPI Cards */
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+            gap: 12px; margin-bottom: 18px; }
+.kpi { background: var(--card); border-radius: var(--radius); padding: 14px 18px;
+       box-shadow: var(--shadow); border-left: 4px solid var(--accent); }
+.kpi.ok { border-left-color: var(--ok); }
+.kpi.err { border-left-color: var(--err); }
+.kpi.warn { border-left-color: var(--warn); }
+.kpi-label { font-size: .72rem; text-transform: uppercase; color: var(--muted);
+             letter-spacing: .5px; margin-bottom: 2px; }
+.kpi-value { font-size: 1.5rem; font-weight: 700; }
+.kpi-sub { font-size: .75rem; color: var(--muted); margin-top: 2px; }
+
+/* Progress bar */
+.progress-section { margin-bottom: 22px; }
+.progress-track { background: var(--border); border-radius: 8px; height: 22px;
+                  overflow: hidden; position: relative; }
+.progress-fill { height: 100%; border-radius: 8px;
+                 background: linear-gradient(90deg, #2563eb, #16a34a);
+                 transition: width .6s ease; min-width: 1px; }
+.progress-text { text-align: center; font-size: .8rem; color: var(--muted);
+                 margin-top: 4px; }
+
+/* Chart cards */
+.chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 18px; }
+.chart-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 18px; }
+.chart-card { background: var(--card); border-radius: var(--radius); padding: 18px;
+              box-shadow: var(--shadow); }
+.chart-card h2 { font-size: .92rem; margin-bottom: 10px; color: var(--text); }
+.chart-card select { padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px;
+                     font-size: .85rem; margin-bottom: 8px; }
+.chart-full { grid-column: 1 / -1; }
+
+/* Status grid */
+.grid-wrap { overflow-x: auto; }
+.grid-wrap table { border-collapse: collapse; font-size: .72rem; width: 100%; }
+.grid-wrap th { background: #f8fafc; position: sticky; top: 0; z-index: 2;
+                padding: 4px 6px; white-space: nowrap; border: 1px solid var(--border);
+                font-weight: 600; cursor: pointer; }
+.grid-wrap th:hover { background: #eef2f7; }
+.grid-wrap td { padding: 0; border: 1px solid var(--border); text-align: center; }
+.grid-wrap td.inst-name { text-align: left; padding: 3px 8px; white-space: nowrap;
+                          font-weight: 500; background: #f8fafc; position: sticky; left: 0;
+                          z-index: 1; cursor: pointer; }
+.grid-wrap td.inst-name:hover { background: #e2e8f0; }
+.cell { width: 44px; height: 28px; display: flex; align-items: center;
+        justify-content: center; margin: auto; font-size: .65rem; font-weight: 600;
+        color: #fff; border-radius: 3px; cursor: pointer; transition: transform .15s; }
+.cell:hover { transform: scale(1.15); }
+.cell.ok { background: var(--ok); }
+.cell.err { background: var(--err); }
+.cell.warn { background: var(--warn); }
+.cell.pend { background: var(--pending); color: var(--muted); cursor: default; }
+.cell.pend:hover { transform: none; }
+
+/* Results table */
+.table-section { margin-top: 18px; }
+.table-section h2 { font-size: .95rem; margin-bottom: 10px; }
+.tbl-wrap { overflow-x: auto; background: var(--card); border-radius: var(--radius);
+            box-shadow: var(--shadow); }
+.tbl-wrap table { border-collapse: collapse; font-size: .75rem; width: 100%; min-width: 1100px; }
+.tbl-wrap th { background: #f8fafc; padding: 7px 8px; text-align: left;
+               border-bottom: 2px solid var(--border); cursor: pointer; white-space: nowrap;
+               user-select: none; position: sticky; top: 0; }
+.tbl-wrap th:hover { background: #eef2f7; }
+.tbl-wrap td { padding: 5px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.tbl-wrap tr { cursor: pointer; transition: background .15s; }
+.tbl-wrap tr:hover td { background: #eff6ff; }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: .7rem;
+         font-weight: 600; color: #fff; }
+.badge.ok { background: var(--ok); } .badge.err { background: var(--err); }
+.badge.warn { background: var(--warn); }
+
+/* ── Detail Sidebar ── */
+.sidebar-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                   background: rgba(0,0,0,.25); z-index: 200; }
+.sidebar-overlay.open { display: block; }
+.sidebar { position: fixed; top: 0; right: -540px; width: var(--sidebar-w); height: 100vh;
+           background: var(--card); z-index: 201; box-shadow: -4px 0 20px rgba(0,0,0,.15);
+           transition: right .3s ease; overflow-y: auto; }
+.sidebar.open { right: 0; }
+.sidebar-header { position: sticky; top: 0; background: linear-gradient(135deg, #1e3a5f, #1e40af);
+                  color: #fff; padding: 16px 20px; display: flex; justify-content: space-between;
+                  align-items: center; z-index: 5; }
+.sidebar-header h2 { font-size: 1rem; font-weight: 600; }
+.sidebar-close { background: none; border: none; color: #fff; font-size: 1.4rem; cursor: pointer;
+                 padding: 4px 8px; border-radius: 4px; }
+.sidebar-close:hover { background: rgba(255,255,255,.15); }
+.sidebar-body { padding: 18px 20px 30px; }
+
+/* Sidebar sections */
+.sb-section { margin-bottom: 20px; }
+.sb-section h3 { font-size: .82rem; text-transform: uppercase; color: var(--muted);
+                 letter-spacing: .6px; margin-bottom: 8px; padding-bottom: 4px;
+                 border-bottom: 1px solid var(--border); }
+.sb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; }
+.sb-item { display: flex; justify-content: space-between; padding: 3px 0; }
+.sb-item .sb-label { font-size: .78rem; color: var(--muted); }
+.sb-item .sb-val { font-size: .82rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sb-val.good { color: var(--ok); }
+.sb-val.bad { color: var(--err); }
+
+/* Indicator bars */
+.ind-bar-wrap { margin: 4px 0; }
+.ind-bar-label { font-size: .75rem; display: flex; justify-content: space-between; }
+.ind-bar-track { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin-top: 2px; }
+.ind-bar-fill { height: 100%; border-radius: 4px; transition: width .4s; }
+
+/* Responsive */
+@media (max-width: 900px) { .chart-row, .chart-row-3 { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .kpi-grid { grid-template-columns: 1fr 1fr; }
+  :root { --sidebar-w: 100vw; } }
+
+/* Empty state */
+.empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+.empty p { font-size: 1.1rem; }
+.spinner { display: inline-block; width: 28px; height: 28px; border: 3px solid var(--border);
+           border-top-color: var(--accent); border-radius: 50%;
+           animation: spin 1s linear infinite; margin-bottom: 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>DOE L9 <span>— CALBP Dashboard</span></h1>
+  <div class="hdr-right">
+    <span id="last-refresh"></span>
+    <label><input type="checkbox" id="auto-refresh" checked> Auto 15 s</label>
+  </div>
+</header>
+
+<main>
+  <!-- KPI cards -->
+  <div class="kpi-grid" id="kpi-grid"></div>
+
+  <!-- Progress bar -->
+  <div class="progress-section">
+    <div class="progress-track"><div class="progress-fill" id="prog-fill"></div></div>
+    <div class="progress-text" id="prog-text"></div>
+  </div>
+
+  <!-- Tabs + Source filter -->
+  <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:18px">
+    <div class="tab-nav" style="margin-bottom:0">
+      <button class="tab-btn active" data-tab="tab-overview">Overview</button>
+      <button class="tab-btn" data-tab="tab-indicators">Pareto Indicators</button>
+      <button class="tab-btn" data-tab="tab-configs">Config Analysis</button>
+      <button class="tab-btn" data-tab="tab-doe">DOE Analysis</button>
+      <button class="tab-btn" data-tab="tab-table">Detailed Table</button>
+      <button class="tab-btn" data-tab="tab-method">Methodology</button>
+    </div>
+    <div style="display:flex;gap:4px;align-items:center">
+      <span style="font-size:.78rem;color:var(--muted);margin-right:4px">Source:</span>
+      <button class="src-btn active" data-src="all">All (45)</button>
+      <button class="src-btn" data-src="Scholl">Scholl (14)</button>
+      <button class="src-btn" data-src="Otto">Otto (14)</button>
+    </div>
+  </div>
+
+  <!-- ═══════ TAB: Overview ═══════ -->
+  <div class="tab-panel active" id="tab-overview">
+    <div class="chart-card chart-full" style="margin-bottom:18px">
+      <h2>Progress Grid — Instances × Configs <small style="color:var(--muted);font-weight:400">(click a cell for details)</small></h2>
+      <div class="grid-wrap" id="status-grid"></div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-card">
+        <h2>Pareto Front — Explorer</h2>
+        <select id="pf-select"></select>
+        <div id="pf-plot" style="height:370px"></div>
+      </div>
+      <div class="chart-card">
+        <h2>Mode Distribution (%)</h2>
+        <div id="mode-plot" style="height:410px"></div>
+      </div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-card">
+        <h2>CPU Time per Run</h2>
+        <div id="cpu-plot" style="height:340px"></div>
+      </div>
+      <div class="chart-card">
+        <h2>|PF| Size per Run</h2>
+        <div id="pf-size-plot" style="height:340px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════ TAB: Indicators ═══════ -->
+  <div class="tab-panel" id="tab-indicators">
+    <div class="chart-card chart-full" style="margin-bottom:18px">
+      <h2>Normalized HV Heatmap — Instances × Configs</h2>
+      <div id="hv-heatmap" style="height:650px"></div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-card">
+        <h2>Normalized HV per Run</h2>
+        <div id="hv-bar" style="height:360px"></div>
+      </div>
+      <div class="chart-card">
+        <h2>Normalized HV vs |PF|</h2>
+        <div id="hv-vs-pf" style="height:360px"></div>
+      </div>
+    </div>
+    <div class="chart-row-3">
+      <div class="chart-card">
+        <h2>Spacing (Schott 1995)</h2>
+        <div id="spacing-plot" style="height:300px"></div>
+      </div>
+      <div class="chart-card">
+        <h2>Spread Δ (Deb 2002)</h2>
+        <div id="spread-plot" style="height:300px"></div>
+      </div>
+      <div class="chart-card">
+        <h2>Max Spread (Zitzler 2000)</h2>
+        <div id="maxspread-plot" style="height:300px"></div>
+      </div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-card">
+        <h2>Indicator Correlation</h2>
+        <div id="corr-scatter" style="height:360px"></div>
+      </div>
+      <div class="chart-card">
+        <h2>Normalized HV Distribution</h2>
+        <div id="hv-hist" style="height:360px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════ TAB: Configs ═══════ -->
+  <div class="tab-panel" id="tab-configs">
+    <div class="chart-card chart-full" style="margin-bottom:18px">
+      <h2>Config Comparison — Average Indicators</h2>
+      <div id="cfg-radar" style="height:420px"></div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-card">
+        <h2>Normalized HV Boxplot by Config</h2>
+        <div id="cfg-hv-box" style="height:360px"></div>
+      </div>
+      <div class="chart-card">
+        <h2>CPU Boxplot by Config</h2>
+        <div id="cfg-cpu-box" style="height:360px"></div>
+      </div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-card">
+        <h2>Average |PF| by Config</h2>
+        <div id="cfg-pf-bar" style="height:320px"></div>
+      </div>
+      <div class="chart-card">
+        <h2>% Optimal Points by Config</h2>
+        <div id="cfg-cert-bar" style="height:320px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════ TAB: Table ═══════ -->
+  <div class="tab-panel" id="tab-table">
+    <div class="table-section">
+      <h2>Detailed Results <small style="color:var(--muted);font-weight:400">(click a row for details)</small></h2>
+      <div style="margin-bottom:8px">
+        <input type="text" id="tbl-filter" placeholder="Filter (name, config, source…)"
+               style="padding:6px 12px;border:1px solid var(--border);border-radius:6px;font-size:.85rem;width:300px">
+      </div>
+      <div class="tbl-wrap" style="max-height:600px; overflow-y:auto">
+        <table><thead id="tbl-head"></thead><tbody id="tbl-body"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════ TAB: DOE Analysis ═══════ -->
+  <div class="tab-panel" id="tab-doe">
+    <div class="chart-card chart-full" style="margin-bottom:18px">
+      <h2>DOE Factor Main Effects
+        <select id="doe-response" style="margin-left:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:.85rem">
+          <option value="HV_norm" selected>Normalized HV</option>
+          <option value="n_pareto">|PF|</option>
+          <option value="total_cpu_s">CPU (s)</option>
+          <option value="spacing">Spacing</option>
+          <option value="spread_delta">Spread Δ</option>
+        </select>
+      </h2>
+      <div id="doe-main-effects" style="height:380px"></div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-card">
+        <h2>Relative Factor Importance (effect range)</h2>
+        <div id="doe-factor-importance" style="height:340px"></div>
+      </div>
+      <div class="chart-card">
+        <h2>Scholl vs Otto — HV Distribution</h2>
+        <div id="doe-source-box" style="height:340px"></div>
+      </div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-card">
+        <h2>Interaction α × γ → Normalized HV</h2>
+        <p style="font-size:.78rem;color:#64748b;margin:2px 0 6px;line-height:1.5">
+          Each line represents a fixed cobot speed (α). The x-axis varies the sequential overhead (γ).
+          <b>Parallel lines</b> = no interaction (α and γ act independently).
+          <b>Crossing lines</b> = significant interaction (the best α depends on the γ level).
+          For example, a fast cobot (low α) may excel when coordination is cheap (low γ),
+          but lose its advantage when sequential overhead is high.
+        </p>
+        <div id="doe-interaction" style="height:340px"></div>
+      </div>
+      <div class="chart-card">
+        <h2>S/N ratio (larger-is-better)</h2>
+        <p style="font-size:.78rem;color:#64748b;margin:2px 0 6px;line-height:1.5">
+          Taguchi Signal-to-Noise ratio: S/N = −10·log₁₀(mean(1/y²)).
+          <b>Higher S/N (in dB)</b> = the factor level produces both a high response <em>and</em> low variability across instances.
+          The factor whose S/N curve has the <b>steepest slope</b> is the most influential.
+          A <b>flat curve</b> means the factor has little impact on the response.
+          Optimal setting = the level with the highest S/N for each factor.
+        </p>
+        <div id="doe-sn-ratio" style="height:340px"></div>
+      </div>
+    </div>
+  </div>
+  <!-- ═══════ TAB: Methodology ═══════ -->
+  <div class="tab-panel" id="tab-method">
+
+    <!-- DOE Overview -->
+    <div class="chart-card chart-full" style="margin-bottom:18px">
+      <h2>Design of Experiments — Taguchi L9</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:10px 0">
+        <div>
+          <h3 style="font-size:.9rem;margin-bottom:10px;color:var(--accent)">Principle</h3>
+          <p style="font-size:.85rem;line-height:1.7;color:var(--text)">
+            We study how <b>4 human-robot collaboration factors</b> affect the quality
+            of bi-objective CALBP solutions (cost vs energy).<br><br>
+            Instead of testing all 3<sup>4</sup>=81 combinations, the
+            <b>Taguchi L9</b> orthogonal array reduces to <b>9 configurations</b> while capturing
+            the main effects of each factor.<br><br>
+            Each config is crossed with <b>28 benchmark instances</b> → <b>252 runs</b> in total.
+          </p>
+        </div>
+        <div>
+          <h3 style="font-size:.9rem;margin-bottom:10px;color:var(--accent)">The 7 Collaboration Modes</h3>
+          <table style="font-size:.82rem;border-collapse:collapse;width:100%">
+            <tr style="background:#f8fafc"><th style="padding:6px 10px;text-align:left;border-bottom:2px solid var(--border)">Mode</th><th style="padding:6px 10px;text-align:left;border-bottom:2px solid var(--border)">Description</th><th style="padding:6px 10px;text-align:left;border-bottom:2px solid var(--border)">Parameter</th></tr>
+            <tr><td style="padding:5px 10px;border-bottom:1px solid var(--border)"><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#3b82f6;margin-right:6px;vertical-align:middle"></span><b>HI</b></td><td style="padding:5px 10px;border-bottom:1px solid var(--border)">Human only</td><td style="padding:5px 10px;border-bottom:1px solid var(--border)">—</td></tr>
+            <tr><td style="padding:5px 10px;border-bottom:1px solid var(--border)"><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#22c55e;margin-right:6px;vertical-align:middle"></span><b>CI</b></td><td style="padding:5px 10px;border-bottom:1px solid var(--border)">Cobot independent (alone)</td><td style="padding:5px 10px;border-bottom:1px solid var(--border)">α = CI time ratio</td></tr>
+            <tr><td style="padding:5px 10px;border-bottom:1px solid var(--border)"><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#8b5cf6;margin-right:6px;vertical-align:middle"></span><b>SU</b></td><td style="padding:5px 10px;border-bottom:1px solid var(--border)">Supportive (cobot assists human)</td><td style="padding:5px 10px;border-bottom:1px solid var(--border)">β = SU time ratio</td></tr>
+            <tr><td style="padding:5px 10px;border-bottom:1px solid var(--border)"><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#f59e0b;margin-right:6px;vertical-align:middle"></span><b>SE<sub>H</sub></b> / <b>SE<sub>C</sub></b></td><td style="padding:5px 10px;border-bottom:1px solid var(--border)">Sequential (one then the other)</td><td style="padding:5px 10px;border-bottom:1px solid var(--border)">γ = SE time ratio</td></tr>
+            <tr><td style="padding:5px 10px"><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:#ec4899;margin-right:6px;vertical-align:middle"></span><b>SI<sub>H</sub></b> / <b>SI<sub>C</sub></b></td><td style="padding:5px 10px">Simultaneous (both in parallel)</td><td style="padding:5px 10px">σ = SI time ratio</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- DOE Factors Table -->
+    <div class="chart-row">
+      <div class="chart-card">
+        <h2>DOE Factors and Levels</h2>
+        <table style="font-size:.82rem;border-collapse:collapse;width:100%">
+          <tr style="background:#f8fafc">
+            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid var(--border)">Factor</th>
+            <th style="padding:8px 10px;text-align:center;border-bottom:2px solid var(--border)">Symbol</th>
+            <th style="padding:8px 10px;text-align:center;border-bottom:2px solid var(--border);color:#16a34a">Low</th>
+            <th style="padding:8px 10px;text-align:center;border-bottom:2px solid var(--border);color:#d97706">Mid</th>
+            <th style="padding:8px 10px;text-align:center;border-bottom:2px solid var(--border);color:#dc2626">High</th>
+            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid var(--border)">Interpretation</th>
+          </tr>
+          <tr><td style="padding:6px 10px;border-bottom:1px solid var(--border)"><b>A</b> — Cobot time factor</td><td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border)">α</td><td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border)">[0.85, 1.10]</td><td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border)">[1.20, 1.60]</td><td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border)">[1.80, 2.50]</td><td style="padding:6px 10px;border-bottom:1px solid var(--border)">High α → slower cobot → CI less attractive</td></tr>
+          <tr><td style="padding:6px 10px;border-bottom:1px solid var(--border)"><b>B</b> — Supportive time factor</td><td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border)">β</td><td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border)">[0.30, 0.45]</td><td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border)">[0.55, 0.70]</td><td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border)">[0.80, 0.95]</td><td style="padding:6px 10px;border-bottom:1px solid var(--border)">Low β → stronger supportive gain</td></tr>
+          <tr><td style="padding:6px 10px;border-bottom:1px solid var(--border)"><b>C</b> — Sequential time factor</td><td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border)">γ</td><td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border)">[0.85, 0.95]</td><td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border)">[0.95, 1.05]</td><td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border)">[1.05, 1.10]</td><td style="padding:6px 10px;border-bottom:1px solid var(--border)">Low γ → sequential gain, high γ → sequential overhead</td></tr>
+          <tr><td style="padding:6px 10px"><b>D</b> — Simultaneous time factor</td><td style="padding:6px 10px;text-align:center">σ</td><td style="padding:6px 10px;text-align:center">[1.00, 1.10]</td><td style="padding:6px 10px;text-align:center">[1.10, 1.25]</td><td style="padding:6px 10px;text-align:center">[1.25, 1.45]</td><td style="padding:6px 10px">High σ → stronger simultaneous overhead</td></tr>
+        </table>
+        <p style="font-size:.78rem;color:var(--muted);margin-top:10px">
+          <b>Fixed parameters:</b> C<sub>s</sub>=4 €/h, C<sub>w</sub>=36 €/h, C<sub>c</sub>=5 €/h, R<sub>e</sub>=0.05 kW
+        </p>
+      </div>
+      <div class="chart-card">
+        <h2>Benchmark Composition (28 instances)</h2>
+        <table style="font-size:.82rem;border-collapse:collapse;width:100%">
+          <tr style="background:#f8fafc">
+            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid var(--border)">Block</th>
+            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid var(--border)">Source</th>
+            <th style="padding:8px 10px;text-align:center;border-bottom:2px solid var(--border)"># Inst.</th>
+            <th style="padding:8px 10px;text-align:center;border-bottom:2px solid var(--border)">|J| (tasks)</th>
+          </tr>
+          <tr><td style="padding:6px 10px;border-bottom:1px solid var(--border)"><b>A</b> — Scholl curated subset</td><td style="padding:6px 10px;border-bottom:1px solid var(--border)">Scholl & Klein</td><td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border)">14</td><td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border)">7–111</td></tr>
+          <tr><td style="padding:6px 10px"><b>B</b> — Otto curated subset</td><td style="padding:6px 10px">Otto et al. (SALBPGen)</td><td style="padding:6px 10px;text-align:center">14</td><td style="padding:6px 10px;text-align:center">20</td></tr>
+        </table>
+        <p style="font-size:.78rem;color:var(--muted);margin-top:10px">
+          <b>Total:</b> 9 configs × 28 instances = <b>252 runs</b><br>
+          Solver: ε-constraint MILP (Audrey competitive, CPLEX 22.1.1, 300 s / iteration)
+        </p>
+        <div style="margin-top:16px">
+          <h3 style="font-size:.85rem;margin-bottom:8px;color:var(--accent)">ε-constraint Method</h3>
+          <p style="font-size:.82rem;line-height:1.7;color:var(--text)">
+            <b>Step 1:</b> Solve min Cost (no energy constraint) → point (C<sub>max</sub>, E<sub>min</sub>)<br>
+            <b>Step 2:</b> Add constraint Cost ≤ C<sub>max</sub>−1 and re-solve.<br>
+            <b>Repeat</b> by decreasing the cost bound at each iteration until infeasibility.<br>
+            → Each iteration yields one point of the Pareto front.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Indicators Explanation -->
+    <div class="chart-card chart-full" style="margin-bottom:18px">
+      <h2>Pareto Front Quality Indicators</h2>
+      <p style="font-size:.82rem;color:var(--muted);margin-bottom:16px">
+        To evaluate the quality of a Pareto front, we use 5 complementary indicators
+        (taxonomy from Zitzler et al. 2003). The <b>reference point</b> is computed as
+        r = (max C, max E) × 1.10 and the <b>ideal point</b> z* = (min C, min E).
+      </p>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px">
+
+        <div style="background:#eff6ff;border-radius:8px;padding:14px;border-top:4px solid #2563eb">
+          <div style="font-size:.95rem;font-weight:700;color:#2563eb;margin-bottom:6px">Normalized HV</div>
+          <div style="font-size:.78rem;line-height:1.6">
+            <b>Hypervolume / total area</b><br>
+            Measures the area dominated by the front, normalized by the rectangle [z*, r].<br><br>
+            <b>Best → 1</b> (the front fills the entire space).<br>
+            <span style="color:var(--muted)">Captures: convergence + coverage</span><br>
+            <span style="color:var(--muted)">Ref: Zitzler & Thiele (1999)</span>
+          </div>
+        </div>
+
+        <div style="background:#f0fdf4;border-radius:8px;padding:14px;border-top:4px solid #16a34a">
+          <div style="font-size:.95rem;font-weight:700;color:#16a34a;margin-bottom:6px">Spacing (SP)</div>
+          <div style="font-size:.78rem;line-height:1.6">
+            <b>Std. deviation of nearest-neighbour L1 distances</b>.<br>
+            Measures whether points are uniformly spread.<br><br>
+            <b>Best → 0</b> (perfect spacing).<br>
+            <span style="color:var(--muted)">Captures: distribution uniformity</span><br>
+            <span style="color:var(--muted)">Ref: Schott (1995)</span>
+          </div>
+        </div>
+
+        <div style="background:#fffbeb;border-radius:8px;padding:14px;border-top:4px solid #d97706">
+          <div style="font-size:.95rem;font-weight:700;color:#d97706;margin-bottom:6px">Spread (Δ)</div>
+          <div style="font-size:.78rem;line-height:1.6">
+            <b>Uniformity + extent</b> combined.<br>
+            Includes distances to the bounding-box boundary solutions.<br><br>
+            <b>Best → 0</b> (ideal distribution).<br>
+            <span style="color:var(--muted)">Captures: uniformity + extreme coverage</span><br>
+            <span style="color:var(--muted)">Ref: Deb et al. (2002)</span>
+          </div>
+        </div>
+
+        <div style="background:#f5f3ff;border-radius:8px;padding:14px;border-top:4px solid #7c3aed">
+          <div style="font-size:.95rem;font-weight:700;color:#7c3aed;margin-bottom:6px">Max Spread (MS)</div>
+          <div style="font-size:.78rem;line-height:1.6">
+            <b>Bounding box diagonal</b> of the front in objective space.<br>
+            Measures the range of proposed trade-offs.<br><br>
+            <b>Best → max</b> (more diversity).<br>
+            <span style="color:var(--muted)">Captures: trade-off extent</span><br>
+            <span style="color:var(--muted)">Ref: Zitzler et al. (2000)</span>
+          </div>
+        </div>
+
+        <div style="background:#fef2f2;border-radius:8px;padding:14px;border-top:4px solid #dc2626">
+          <div style="font-size:.95rem;font-weight:700;color:#dc2626;margin-bottom:6px">Optimality Rate</div>
+          <div style="font-size:.78rem;line-height:1.6">
+            <b>% of certified optimal</b> points by CPLEX (MIP gap = 0%).<br>
+            100% = every point is an exact solution.<br><br>
+            <b>Best → 100%</b><br>
+            <span style="color:var(--muted)">Captures: reliability / certification</span><br>
+            <span style="color:var(--muted)">Time limit: 300 s</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Reading guide -->
+    <div class="chart-card chart-full">
+      <h2>Dashboard Reading Guide</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;font-size:.82rem;line-height:1.7">
+        <div>
+          <h3 style="font-size:.85rem;color:var(--accent);margin-bottom:8px">"Overview" Tab</h3>
+          <ul style="padding-left:18px;color:var(--text)">
+            <li><b>Progress grid:</b> green cell = solved, red = error, grey = pending. The number in each cell = number of Pareto points.</li>
+            <li><b>Pareto front:</b> select an instance to see all 9 fronts overlaid (1 per config).</li>
+            <li><b>Mode distribution:</b> stacked bars showing what % of time is allocated to each collaboration mode.</li>
+          </ul>
+          <h3 style="font-size:.85rem;color:var(--accent);margin-bottom:8px;margin-top:14px">"Pareto Indicators" Tab</h3>
+          <ul style="padding-left:18px;color:var(--text)">
+            <li><b>HV Heatmap:</b> quality overview by instance × config. Darker colors = higher HV = better front.</li>
+            <li><b>Indicator correlation:</b> Spacing vs HV, colored by |PF|. Shows whether more points → better front.</li>
+          </ul>
+        </div>
+        <div>
+          <h3 style="font-size:.85rem;color:var(--accent);margin-bottom:8px">"Config Analysis" Tab</h3>
+          <ul style="padding-left:18px;color:var(--text)">
+            <li><b>Radar:</b> normalized profile of each config on the 5 indicators. Larger polygon = better.</li>
+            <li><b>HV/CPU Boxplots:</b> variability of each config across all instances.</li>
+          </ul>
+          <h3 style="font-size:.85rem;color:var(--accent);margin-bottom:8px;margin-top:14px">"DOE Analysis" Tab</h3>
+          <ul style="padding-left:18px;color:var(--text)">
+            <li><b>Main effects:</b> how each factor (α, β, γ, σ) affects the chosen response. Upward curve = factor increases the response.</li>
+            <li><b>Relative importance:</b> effect range of each factor. The largest = the most influential factor.</li>
+            <li><b>S/N ratio:</b> Taguchi signal-to-noise ratio (−10·log₁₀(mean(1/y²))). Higher S/N = the factor level produces a high response with low variability. Steepest curve = most influential factor. Pick the level with the highest S/N for each factor.</li>
+            <li><b>Interaction α×γ:</b> each line is a fixed α (cobot speed), x-axis = γ (sequential overhead). Parallel lines = no interaction. Crossing/diverging lines = the optimal cobot speed depends on coordination cost — a key insight for line design.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</main>
+
+<!-- ═══════ DETAIL SIDEBAR ═══════ -->
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <h2 id="sb-title">Run Detail</h2>
+    <button class="sidebar-close" id="sb-close">&times;</button>
+  </div>
+  <div class="sidebar-body" id="sb-body"></div>
+</div>
+
+<script>
+const MODES = ['HI','CI','SEH','SEC','SU','SIH','SIC'];
+const MODE_COLORS = {HI:'#3b82f6',CI:'#22c55e',SEH:'#f59e0b',SEC:'#ef4444',
+                     SU:'#8b5cf6',SIH:'#ec4899',SIC:'#06b6d4'};
+const CFG_COLORS = ['#2563eb','#dc2626','#16a34a','#d97706','#7c3aed',
+                    '#db2777','#0891b2','#65a30d','#ea580c'];
+const IND_COLORS = {HV_norm:'#2563eb', spacing:'#16a34a', spread_delta:'#d97706', max_spread:'#7c3aed'};
+
+let DATA = null;
+let refreshTimer = null;
+let sortCol = null, sortAsc = true;
+let sourceFilter = 'all';
+let prevOK = 0, speed = 0, lastSpeedTs = Date.now();
+
+function instSource(inst) {
+  if (!inst) return '';
+  if (inst.startsWith('Scholl_')) return 'Scholl';
+  if (inst.startsWith('instance_n=')) return 'Otto';
+  const r = Object.values(DATA.runs).find(r => r.base_instance === inst && r.source);
+  return r ? r.source : '';
+}
+
+/* ══════════════════════════════════════════
+   Tabs
+   ══════════════════════════════════════════ */
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+    // Re-render visible charts (Plotly needs visible container)
+    setTimeout(() => { if (DATA) renderActiveTab(); }, 50);
+  });
+});
+
+function activeTab() {
+  const a = document.querySelector('.tab-btn.active');
+  return a ? a.dataset.tab : 'tab-overview';
+}
+
+function renderActiveTab() {
+  const t = activeTab();
+  if (t === 'tab-overview') { renderStatusGrid(); renderParetoSelect(); renderPareto(); renderModeChart(); renderCPU(); renderPFSize(); }
+  else if (t === 'tab-indicators') { renderHVHeatmap(); renderHVBar(); renderHVvsPF(); renderSpacing(); renderSpread(); renderMaxSpread(); renderCorrScatter(); renderHVHist(); }
+  else if (t === 'tab-configs') { renderCfgRadar(); renderCfgHVBox(); renderCfgCPUBox(); renderCfgPFBar(); renderCfgCertBar(); }
+  else if (t === 'tab-doe') { renderMainEffects(); renderFactorImportance(); renderSourceBox(); renderInteraction(); renderSNRatio(); }
+  else if (t === 'tab-table') { renderTable(); }
+  // tab-method is static HTML, no rendering needed
+}
+
+/* ══════════════════════════════════════════
+   Sidebar
+   ══════════════════════════════════════════ */
+
+function openSidebar(runName) {
+  const run = DATA.runs[runName];
+  if (!run) return;
+  const pf = DATA.pareto_fronts[runName] || [];
+
+  document.getElementById('sb-title').textContent = runName;
+
+  let html = '';
+
+  // ── Config params ──
+  html += `<div class="sb-section"><h3>Configuration ${run.config_name || ''}</h3><div class="sb-grid">`;
+  const params = [
+    ['α (CI)', run.alpha_ci], ['β (SU)', run.beta_su],
+    ['γ (setup)', run.gamma_setup], ['σ (SI)', run.sigma_si],
+    ['R_e', run.R_e], ['C_c', run.C_c], ['T', run.T], ['Seed', run.seed],
+  ];
+  params.forEach(([l, v]) => {
+    html += `<div class="sb-item"><span class="sb-label">${l}</span><span class="sb-val">${v != null ? (typeof v==='number' ? v.toFixed(4) : v) : '—'}</span></div>`;
+  });
+  html += '</div></div>';
+
+  // ── Status ──
+  html += `<div class="sb-section"><h3>Result</h3><div class="sb-grid">`;
+  const stCls = run.status === 'OK' ? 'good' : 'bad';
+  const facts = [
+    ['Status', `<span class="sb-val ${stCls}">${run.status}</span>`],
+    ['Source', run.source || ''], ['Tasks', run.n_tasks],
+    ['|PF|', run.n_pareto], ['Optimal', run.n_certified],
+    ['CPU', fmtTime(run.total_cpu_s)],
+    ['Avg gap', run.gap_mean_pct != null ? run.gap_mean_pct.toFixed(2) + '%' : '—'],
+    ['Max gap', run.gap_max_pct != null ? run.gap_max_pct.toFixed(2) + '%' : '—'],
+  ];
+  facts.forEach(([l, v]) => {
+    html += `<div class="sb-item"><span class="sb-label">${l}</span><span class="sb-val">${v ?? '—'}</span></div>`;
+  });
+  html += '</div></div>';
+
+  // ── Quality indicators ──
+  html += `<div class="sb-section"><h3>Pareto Indicators (Zitzler et al.)</h3>`;
+  const indicators = [
+    {key: 'HV_norm', label: 'Normalized HV', max: 1, color: '#2563eb', desc: 'HV / area(ideal→ref)'},
+    {key: 'HV_abs', label: 'Absolute HV', max: null, color: '#3b82f6', desc: 'Raw hypervolume'},
+    {key: 'spacing', label: 'Spacing (Schott)', max: null, color: '#16a34a', desc: 'σ nearest-neighbour'},
+    {key: 'spread_delta', label: 'Spread Δ (Deb)', max: 1, color: '#d97706', desc: '0=ideal, 1=bad'},
+    {key: 'max_spread', label: 'Max Spread', max: null, color: '#7c3aed', desc: 'Bounding box diagonal'},
+    {key: 'cost_range', label: 'Cost range', max: null, color: '#64748b'},
+    {key: 'energy_range', label: 'Energy range', max: null, color: '#64748b'},
+  ];
+  indicators.forEach(ind => {
+    const v = run[ind.key];
+    if (v == null) return;
+    const vStr = typeof v === 'number' ? (v < 10 ? v.toFixed(4) : v.toFixed(2)) : v;
+    html += `<div class="ind-bar-wrap">`;
+    html += `<div class="ind-bar-label"><span>${ind.label}</span><span style="font-weight:600">${vStr}</span></div>`;
+    if (ind.max != null) {
+      const pct = Math.min(100, Math.max(0, (v / ind.max) * 100));
+      html += `<div class="ind-bar-track"><div class="ind-bar-fill" style="width:${pct}%;background:${ind.color}"></div></div>`;
+    }
+    if (ind.desc) html += `<div style="font-size:.68rem;color:var(--muted)">${ind.desc}</div>`;
+    html += '</div>';
+  });
+  html += `<div class="sb-item" style="margin-top:6px"><span class="sb-label">Ref point</span><span class="sb-val">(${run.ref_cost != null ? run.ref_cost.toFixed(1) : '?'}, ${run.ref_energy != null ? run.ref_energy.toFixed(2) : '?'})</span></div>`;
+  html += '</div>';
+
+  // ── Pareto front plot ──
+  html += `<div class="sb-section"><h3>Pareto Front</h3><div id="sb-pf-plot" style="height:260px"></div></div>`;
+
+  // ── Mode distribution ──
+html += `<div class="sb-section"><h3>Mode Distribution</h3><div id="sb-mode-plot" style="height:220px"></div></div>`;
+
+  // ── Per-point table ──
+  if (pf.length) {
+    html += `<div class="sb-section"><h3>Front Points (${pf.length})</h3>`;
+    html += '<div style="overflow-x:auto;font-size:.72rem"><table style="border-collapse:collapse;width:100%">';
+    html += '<thead><tr style="background:#f8fafc">';
+    ['#','Cost','Energy','Stations','Workers','Cobots','Opt.','Gap%','CPU(s)'].forEach(h =>
+      html += `<th style="padding:4px 6px;border:1px solid var(--border);white-space:nowrap">${h}</th>`);
+    html += '</tr></thead><tbody>';
+    pf.forEach((p, i) => {
+      const cert = p.certified ? '✓' : '✗';
+      const certCls = p.certified ? 'color:var(--ok)' : 'color:var(--err)';
+      html += `<tr>`;
+      [i, p.cost?.toFixed(1), p.energy?.toFixed(2), p.stations, p.workers, p.cobots,
+       `<span style="${certCls};font-weight:600">${cert}</span>`,
+       p.mip_gap_pct != null ? p.mip_gap_pct.toFixed(2) : '—',
+       p.cpu_s != null ? p.cpu_s.toFixed(1) : '—'
+      ].forEach(v => html += `<td style="padding:3px 6px;border:1px solid var(--border);text-align:center">${v ?? ''}</td>`);
+      html += '</tr>';
+    });
+    html += '</tbody></table></div></div>';
+  }
+
+  document.getElementById('sb-body').innerHTML = html;
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebar-overlay').classList.add('open');
+
+  // Render sidebar plots after DOM update
+  setTimeout(() => {
+    // PF plot
+    if (pf.length) {
+      const sorted = [...pf].sort((a, b) => a.cost - b.cost);
+      Plotly.newPlot('sb-pf-plot', [{
+        x: sorted.map(p => p.cost), y: sorted.map(p => p.energy),
+        mode: 'lines+markers', marker: {size: 8, color: sorted.map(p => p.certified ? '#16a34a' : '#dc2626')},
+        line: {width: 2, color: '#2563eb'},
+        text: sorted.map((p, i) => `#${i} S=${p.stations} W=${p.workers} C=${p.cobots}`),
+        hovertemplate: '<b>%{text}</b><br>Cost: %{x:.1f}<br>Energy: %{y:.2f}<extra></extra>',
+      }], {
+        xaxis: {title: 'Cost (€/h)', gridcolor: '#e2e8f0'},
+        yaxis: {title: 'Energy (kW)', gridcolor: '#e2e8f0'},
+        plot_bgcolor: '#fff', paper_bgcolor: '#fff',
+        margin: {l: 55, r: 10, t: 5, b: 40}, showlegend: false,
+      }, {responsive: true, displaylogo: false, displayModeBar: false});
+    }
+    // Modes donut
+    const modeData = {};
+    pf.forEach(p => MODES.forEach(m => { modeData[m] = (modeData[m] || 0) + (p[m] || 0); }));
+    const mLabels = MODES.filter(m => modeData[m] > 0);
+    if (mLabels.length) {
+      Plotly.newPlot('sb-mode-plot', [{
+        labels: mLabels, values: mLabels.map(m => modeData[m]),
+        type: 'pie', hole: 0.45,
+        marker: {colors: mLabels.map(m => MODE_COLORS[m])},
+        textinfo: 'label+percent', textfont: {size: 11},
+      }], {
+        margin: {l: 10, r: 10, t: 5, b: 5}, showlegend: false,
+        paper_bgcolor: '#fff',
+      }, {responsive: true, displaylogo: false, displayModeBar: false});
+    }
+  }, 100);
+}
+
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('open');
+}
+
+document.getElementById('sb-close').addEventListener('click', closeSidebar);
+document.getElementById('sidebar-overlay').addEventListener('click', closeSidebar);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSidebar(); });
+
+/* Source filter */
+document.querySelectorAll('.src-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.src-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    sourceFilter = btn.dataset.src;
+    renderKPIs(); renderProgress(); renderActiveTab();
+  });
+});
+
+/* ══════════════════════════════════════════
+   Fetch & Render
+   ══════════════════════════════════════════ */
+
+async function fetchData() {
+  try {
+    const r = await fetch('/api/data');
+    DATA = await r.json();
+    // Speed estimation
+    const curOK = DATA.summary.successful || 0;
+    const now = Date.now();
+    const dt = (now - lastSpeedTs) / 1000;
+    if (prevOK > 0 && dt > 5 && curOK > prevOK) {
+      speed = (curOK - prevOK) / (dt / 3600);
+    }
+    prevOK = curOK; lastSpeedTs = now;
+    document.getElementById('last-refresh').textContent =
+      'Updated: ' + new Date().toLocaleTimeString('en-US');
+    renderKPIs();
+    renderProgress();
+    renderActiveTab();
+  } catch (e) { console.error('Fetch error', e); }
+}
+
+/* ── Helpers ── */
+
+function fmtTime(s) {
+  if (s == null) return '—';
+  if (s < 60) return Math.round(s) + ' s';
+  if (s < 3600) return Math.round(s / 60) + ' min';
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return h + 'h ' + m + 'm';
+}
+
+function okRuns() {
+  let runs = Object.values(DATA.runs).filter(r => r.status === 'OK');
+  if (sourceFilter !== 'all') runs = runs.filter(r => r.source === sourceFilter);
+  return runs;
+}
+
+function shortName(rn) { return (rn || '').replace('Scholl_', '').replace('instance_n=20_', 'O'); }
+
+const PL = {responsive: true, displaylogo: false};
+
+/* ══════════════════════════════════════════
+   KPI + Progress
+   ══════════════════════════════════════════ */
+
+function renderKPIs() {
+  const S = DATA.summary;
+  const runs = okRuns();
+  const pct = DATA.total_expected > 0 ? Math.round(S.completed / DATA.total_expected * 100) : 0;
+  const hvVals = runs.map(r => r.HV_norm).filter(v => v != null);
+  const avgHV = hvVals.length ? (hvVals.reduce((a, b) => a + b, 0) / hvVals.length).toFixed(3) : '—';
+  const speedStr = speed > 0 ? speed.toFixed(1) + ' runs/h' : '—';
+  const etaH = (speed > 0 && S.pending > 0) ? (S.pending / speed) : null;
+  const etaStr = etaH != null ? fmtTime(etaH * 3600) : fmtTime(S.eta_s);
+  const cards = [
+    {label: 'Progress', value: pct + ' %', sub: S.completed + ' / ' + DATA.total_expected, cls: ''},
+    {label: 'Successful', value: S.successful, sub: 'runs OK', cls: 'ok'},
+    {label: 'Errors', value: S.failed, sub: 'failed runs', cls: S.failed > 0 ? 'err' : ''},
+    {label: 'Avg |PF|', value: S.avg_pf_size, sub: 'Pareto points', cls: ''},
+    {label: 'Avg HV norm.', value: avgHV, sub: 'Zitzler ref', cls: ''},
+    {label: 'Total CPU', value: fmtTime(S.total_cpu_s), sub: 'avg ' + fmtTime(S.avg_cpu_s) + '/run', cls: ''},
+    {label: 'Throughput', value: speedStr, sub: 'estimated speed', cls: ''},
+    S.pending > 0
+      ? {label: 'ETA', value: etaStr, sub: S.pending + ' remaining', cls: 'warn'}
+      : {label: 'Status', value: '✓ Done', sub: 'Campaign complete', cls: 'ok'},
+  ];
+  document.getElementById('kpi-grid').innerHTML = cards.map(c =>
+    `<div class="kpi ${c.cls}"><div class="kpi-label">${c.label}</div><div class="kpi-value">${c.value}</div><div class="kpi-sub">${c.sub}</div></div>`
+  ).join('');
+}
+
+function renderProgress() {
+  const S = DATA.summary;
+  const pct = DATA.total_expected > 0 ? (S.completed / DATA.total_expected * 100) : 0;
+  document.getElementById('prog-fill').style.width = Math.max(pct, 0.5) + '%';
+  document.getElementById('prog-text').textContent =
+    `${S.completed} / ${DATA.total_expected} runs  (${S.successful} OK, ${S.failed} errors, ${S.pending} pending)`;
+}
+
+/* ══════════════════════════════════════════
+   TAB: Overview
+   ══════════════════════════════════════════ */
+
+function renderStatusGrid() {
+  const cfgs = DATA.configs;
+  let insts = [...DATA.instances];
+  if (sourceFilter !== 'all') {
+    insts = insts.filter(inst => instSource(inst) === sourceFilter);
+  }
+  // Sort: Scholl first, then Otto
+  insts.sort((a, b) => {
+    const sa = instSource(a), sb = instSource(b);
+    if (sa !== sb) return sa === 'Scholl' ? -1 : 1;
+    return a.localeCompare(b);
+  });
+  if (!insts.length) {
+    document.getElementById('status-grid').innerHTML = '<div class="empty"><div class="spinner"></div><p>Waiting…</p></div>';
+    return;
+  }
+  let html = '<table><thead><tr><th></th>';
+  cfgs.forEach(c => html += `<th>${c}</th>`);
+  html += '<th style="font-size:.65rem;color:var(--muted)">Done</th></tr></thead><tbody>';
+  insts.forEach(inst => {
+    const doneCount = cfgs.filter(c => DATA.runs[inst + '_' + c]?.status === 'OK').length;
+    const srcTag = instSource(inst) === 'Otto' ? '<span style="color:var(--err);font-size:.6rem"> O</span>' : '';
+    html += `<tr><td class="inst-name" onclick="filterByInstance('${inst}')">${shortName(inst)}${srcTag}</td>`;
+    cfgs.forEach(c => {
+      const rn = inst + '_' + c;
+      const run = DATA.runs[rn];
+      if (!run) {
+        html += '<td><div class="cell pend">—</div></td>';
+      } else {
+        const st = run.status;
+        const cls = st === 'OK' ? 'ok' : /ERROR/.test(st) ? 'err' : 'warn';
+        const txt = st === 'OK' ? (run.n_pareto || '') : '✗';
+        html += `<td><div class="cell ${cls}" onclick="openSidebar('${rn}')" title="${rn}">${txt}</div></td>`;
+      }
+    });
+    const doneStyle = doneCount === 9 ? 'color:var(--ok);font-weight:700' : 'color:var(--muted)';
+    html += `<td style="font-size:.7rem;text-align:center;${doneStyle}">${doneCount}/9</td>`;
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('status-grid').innerHTML = html;
+}
+
+function filterByInstance(inst) {
+  // Switch to table tab with filter
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector('[data-tab="tab-table"]').classList.add('active');
+  document.getElementById('tab-table').classList.add('active');
+  document.getElementById('tbl-filter').value = inst;
+  setTimeout(renderTable, 50);
+}
+
+function renderParetoSelect() {
+  const sel = document.getElementById('pf-select');
+  const prev = sel.value;
+  const withPF = new Set();
+  Object.keys(DATA.pareto_fronts).forEach(rn => {
+    const inst = rn.replace(/_c\d{2}$/, '');
+    if (DATA.pareto_fronts[rn].length > 0) withPF.add(inst);
+  });
+  const opts = [...withPF].sort();
+  let html = opts.length ? '' : '<option value="">— none —</option>';
+  opts.forEach(o => html += `<option value="${o}" ${o === prev ? 'selected' : ''}>${shortName(o)}</option>`);
+  sel.innerHTML = html;
+  if (!prev && opts.length) sel.value = opts[0];
+}
+
+function renderPareto() {
+  const sel = document.getElementById('pf-select');
+  const inst = sel.value;
+  const div = document.getElementById('pf-plot');
+  if (!inst) { Plotly.purge(div); return; }
+  const traces = [];
+  DATA.configs.forEach((cfg, ci) => {
+    const rn = inst + '_' + cfg;
+    const pts = DATA.pareto_fronts[rn];
+    if (!pts || !pts.length) return;
+    const sorted = [...pts].sort((a, b) => a.cost - b.cost);
+    traces.push({
+      x: sorted.map(p => p.cost), y: sorted.map(p => p.energy),
+      mode: 'lines+markers', name: cfg,
+      marker: {size: 7, color: CFG_COLORS[ci]}, line: {width: 2, color: CFG_COLORS[ci]},
+      hovertemplate: `<b>${cfg}</b><br>Cost: %{x:.1f}<br>Energy: %{y:.2f}<br>Stations: %{customdata[0]}<extra></extra>`,
+      customdata: sorted.map(p => [p.stations || '?']),
+    });
+  });
+  Plotly.react(div, traces, {
+    xaxis: {title: 'Cost (€/h)', gridcolor: '#e2e8f0'},
+    yaxis: {title: 'Energy (kW)', gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff',
+    margin: {l: 60, r: 20, t: 10, b: 50},
+    legend: {orientation: 'h', y: -0.2}, hovermode: 'closest',
+  }, PL);
+}
+
+document.addEventListener('change', e => { if (e.target.id === 'pf-select') renderPareto(); });
+
+function renderModeChart() {
+  const runs = okRuns();
+  if (!runs.length) { Plotly.purge(document.getElementById('mode-plot')); return; }
+  const byInst = {};
+  runs.forEach(r => {
+    const inst = r.base_instance;
+    if (!byInst[inst]) byInst[inst] = {count: 0};
+    byInst[inst].count++;
+    MODES.forEach(m => { byInst[inst][m] = (byInst[inst][m] || 0) + (r['pct_' + m] || 0); });
+  });
+  const instNames = Object.keys(byInst).sort();
+  const traces = MODES.map(m => ({
+    x: instNames.map(i => shortName(i)),
+    y: instNames.map(i => byInst[i].count > 0 ? byInst[i][m] / byInst[i].count : 0),
+    name: m, type: 'bar', marker: {color: MODE_COLORS[m]},
+    hovertemplate: `<b>${m}</b>: %{y:.1f}%<extra>%{x}</extra>`,
+  }));
+  Plotly.react(document.getElementById('mode-plot'), traces, {
+    barmode: 'stack',
+    xaxis: {tickangle: -45, tickfont: {size: 10}},
+    yaxis: {title: '%', range: [0, 105], gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff',
+    margin: {l: 50, r: 10, t: 10, b: 90}, legend: {orientation: 'h', y: 1.05},
+  }, PL);
+}
+
+function renderCPU() {
+  const runs = okRuns().filter(r => r.total_cpu_s != null).sort((a, b) => b.total_cpu_s - a.total_cpu_s);
+  if (!runs.length) { Plotly.purge(document.getElementById('cpu-plot')); return; }
+  Plotly.react(document.getElementById('cpu-plot'), [{
+    x: runs.map(r => shortName(r.run_name)), y: runs.map(r => r.total_cpu_s),
+    type: 'bar', marker: {color: runs.map(r => r.total_cpu_s < 60 ? '#2563eb' : r.total_cpu_s < 600 ? '#d97706' : '#dc2626')},
+    hovertemplate: '%{x}<br>%{y:.0f} s<extra></extra>',
+    customdata: runs.map(r => r.run_name),
+  }], {
+    xaxis: {tickangle: -60, tickfont: {size: 8}}, yaxis: {title: 'CPU (s)', gridcolor: '#e2e8f0', type: 'log'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff', margin: {l: 55, r: 10, t: 10, b: 100}, showlegend: false,
+  }, PL);
+  document.getElementById('cpu-plot').on('plotly_click', d => { if (d.points[0]) openSidebar(d.points[0].customdata); });
+}
+
+function renderPFSize() {
+  const runs = okRuns().filter(r => r.n_pareto != null).sort((a, b) => b.n_pareto - a.n_pareto);
+  if (!runs.length) { Plotly.purge(document.getElementById('pf-size-plot')); return; }
+  Plotly.react(document.getElementById('pf-size-plot'), [{
+    x: runs.map(r => shortName(r.run_name)), y: runs.map(r => r.n_pareto),
+    type: 'bar', marker: {color: '#8b5cf6'},
+    hovertemplate: '%{x}<br>|PF| = %{y}<extra></extra>',
+    customdata: runs.map(r => r.run_name),
+  }], {
+    xaxis: {tickangle: -60, tickfont: {size: 8}}, yaxis: {title: '|PF|', dtick: 2, gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff', margin: {l: 45, r: 10, t: 10, b: 100}, showlegend: false,
+  }, PL);
+  document.getElementById('pf-size-plot').on('plotly_click', d => { if (d.points[0]) openSidebar(d.points[0].customdata); });
+}
+
+/* ══════════════════════════════════════════
+   TAB: Indicators
+   ══════════════════════════════════════════ */
+
+function renderHVHeatmap() {
+  const cfgs = DATA.configs;
+  let insts = [...DATA.instances];
+  if (sourceFilter !== 'all') {
+    insts = insts.filter(inst => instSource(inst) === sourceFilter);
+  }
+  insts.sort((a, b) => {
+    const sa = instSource(a), sb = instSource(b);
+    if (sa !== sb) return sa === 'Scholl' ? -1 : 1;
+    return a.localeCompare(b);
+  });
+  if (!insts.length) return;
+  const z = insts.map(inst => cfgs.map(c => {
+    const r = DATA.runs[inst + '_' + c];
+    return (r && r.HV_norm != null) ? r.HV_norm : null;
+  }));
+  Plotly.react(document.getElementById('hv-heatmap'), [{
+    z: z, x: cfgs, y: insts.map(shortName), type: 'heatmap',
+    colorscale: 'Viridis', hoverongaps: false, zmin: 0, zmax: 1,
+    hovertemplate: '<b>%{y}</b> × %{x}<br>HV_norm = %{z:.4f}<extra></extra>',
+    colorbar: {title: 'HV norm', thickness: 15},
+  }], {
+    yaxis: {tickfont: {size: 9}, autorange: 'reversed'},
+    xaxis: {side: 'top', tickfont: {size: 11}},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff',
+    margin: {l: 120, r: 30, t: 40, b: 20},
+  }, PL);
+  const _hmInsts = [...insts];
+  document.getElementById('hv-heatmap').on('plotly_click', d => {
+    if (d.points[0]) {
+      const yIdx = d.points[0].pointIndex[0];
+      const cfg = d.points[0].x;
+      if (_hmInsts[yIdx]) openSidebar(_hmInsts[yIdx] + '_' + cfg);
+    }
+  });
+}
+
+function renderHVBar() {
+  const runs = okRuns().filter(r => r.HV_norm != null).sort((a, b) => b.HV_norm - a.HV_norm);
+  if (!runs.length) { Plotly.purge(document.getElementById('hv-bar')); return; }
+  Plotly.react(document.getElementById('hv-bar'), [{
+    x: runs.map(r => shortName(r.run_name)), y: runs.map(r => r.HV_norm),
+    type: 'bar', marker: {color: runs.map(r => `hsl(${r.HV_norm * 120}, 70%, 50%)`)},
+    hovertemplate: '%{x}<br>HV = %{y:.4f}<extra></extra>',
+    customdata: runs.map(r => r.run_name),
+  }], {
+    xaxis: {tickangle: -60, tickfont: {size: 7}}, yaxis: {title: 'HV norm', range: [0, 1], gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff', margin: {l: 50, r: 10, t: 10, b: 100}, showlegend: false,
+  }, PL);
+  document.getElementById('hv-bar').on('plotly_click', d => { if (d.points[0]) openSidebar(d.points[0].customdata); });
+}
+
+function renderHVvsPF() {
+  const runs = okRuns().filter(r => r.HV_norm != null && r.n_pareto != null);
+  if (!runs.length) { Plotly.purge(document.getElementById('hv-vs-pf')); return; }
+  const traces = [];
+  DATA.configs.forEach((cfg, ci) => {
+    const cr = runs.filter(r => r.config_name === cfg);
+    if (!cr.length) return;
+    traces.push({
+      x: cr.map(r => r.n_pareto), y: cr.map(r => r.HV_norm),
+      mode: 'markers', name: cfg, marker: {size: 9, color: CFG_COLORS[ci]},
+      text: cr.map(r => shortName(r.run_name)),
+      hovertemplate: '<b>%{text}</b><br>|PF|=%{x}<br>HV=%{y:.4f}<extra>' + cfg + '</extra>',
+      customdata: cr.map(r => r.run_name),
+    });
+  });
+  Plotly.react(document.getElementById('hv-vs-pf'), traces, {
+    xaxis: {title: '|PF|', gridcolor: '#e2e8f0'}, yaxis: {title: 'HV norm', range: [0, 1], gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff', margin: {l: 50, r: 10, t: 10, b: 50},
+    legend: {orientation: 'h', y: -0.25},
+  }, PL);
+  document.getElementById('hv-vs-pf').on('plotly_click', d => { if (d.points[0]) openSidebar(d.points[0].customdata); });
+}
+
+function _indBarChart(divId, key, title, color) {
+  const runs = okRuns().filter(r => r[key] != null).sort((a, b) => b[key] - a[key]);
+  if (!runs.length) { Plotly.purge(document.getElementById(divId)); return; }
+  Plotly.react(document.getElementById(divId), [{
+    x: runs.map(r => shortName(r.run_name)), y: runs.map(r => r[key]),
+    type: 'bar', marker: {color: color},
+    hovertemplate: '%{x}<br>' + title + ' = %{y:.4f}<extra></extra>',
+    customdata: runs.map(r => r.run_name),
+  }], {
+    xaxis: {tickangle: -60, tickfont: {size: 7}}, yaxis: {title: title, gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff', margin: {l: 55, r: 10, t: 10, b: 80}, showlegend: false,
+  }, PL);
+  document.getElementById(divId).on('plotly_click', d => { if (d.points[0]) openSidebar(d.points[0].customdata); });
+}
+
+function renderSpacing() { _indBarChart('spacing-plot', 'spacing', 'Spacing', '#16a34a'); }
+function renderSpread() { _indBarChart('spread-plot', 'spread_delta', 'Spread Δ', '#d97706'); }
+function renderMaxSpread() { _indBarChart('maxspread-plot', 'max_spread', 'Max Spread', '#7c3aed'); }
+
+function renderCorrScatter() {
+  const runs = okRuns().filter(r => r.HV_norm != null && r.spacing != null);
+  if (!runs.length) { Plotly.purge(document.getElementById('corr-scatter')); return; }
+  Plotly.react(document.getElementById('corr-scatter'), [{
+    x: runs.map(r => r.spacing), y: runs.map(r => r.HV_norm),
+    mode: 'markers', marker: {size: 8, color: runs.map(r => r.n_pareto), colorscale: 'Viridis', showscale: true, colorbar: {title: '|PF|', thickness: 12}},
+    text: runs.map(r => shortName(r.run_name)),
+    hovertemplate: '<b>%{text}</b><br>Spacing=%{x:.3f}<br>HV=%{y:.4f}<extra></extra>',
+  }], {
+    xaxis: {title: 'Spacing', gridcolor: '#e2e8f0'}, yaxis: {title: 'HV norm', gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff', margin: {l: 50, r: 60, t: 10, b: 50}, showlegend: false,
+  }, PL);
+}
+
+function renderHVHist() {
+  const vals = okRuns().map(r => r.HV_norm).filter(v => v != null);
+  if (!vals.length) { Plotly.purge(document.getElementById('hv-hist')); return; }
+  Plotly.react(document.getElementById('hv-hist'), [{
+    x: vals, type: 'histogram', nbinsx: 20,
+    marker: {color: '#2563eb', line: {color: '#1e40af', width: 1}},
+  }], {
+    xaxis: {title: 'HV norm', range: [0, 1], gridcolor: '#e2e8f0'},
+    yaxis: {title: 'Frequency', gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff', margin: {l: 50, r: 10, t: 10, b: 50}, showlegend: false,
+  }, PL);
+}
+
+/* ══════════════════════════════════════════
+   TAB: Configs
+   ══════════════════════════════════════════ */
+
+function _cfgStats() {
+  const byC = {};
+  okRuns().forEach(r => {
+    const c = r.config_name;
+    if (!c) return;
+    if (!byC[c]) byC[c] = [];
+    byC[c].push(r);
+  });
+  return byC;
+}
+
+function renderCfgRadar() {
+  const byC = _cfgStats();
+  const cfgs = Object.keys(byC).sort();
+  if (!cfgs.length) { Plotly.purge(document.getElementById('cfg-radar')); return; }
+  const metrics = ['HV_norm', 'spacing', 'spread_delta', 'max_spread', 'n_pareto'];
+  const labels = ['HV norm', 'Spacing', 'Spread Δ', 'Max Spread', '|PF|'];
+  // Compute min/max for normalisation
+  const allRuns = okRuns();
+  const ranges = metrics.map(m => {
+    const vals = allRuns.map(r => r[m]).filter(v => v != null);
+    return vals.length ? [Math.min(...vals), Math.max(...vals)] : [0, 1];
+  });
+  const norm = (v, i) => {
+    const [mn, mx] = ranges[i];
+    return mx > mn ? (v - mn) / (mx - mn) : 0.5;
+  };
+  const traces = cfgs.map((c, ci) => {
+    const rs = byC[c];
+    const means = metrics.map((m, i) => {
+      const vals = rs.map(r => r[m]).filter(v => v != null);
+      return vals.length ? norm(vals.reduce((a, b) => a + b, 0) / vals.length, i) : 0;
+    });
+    return {
+      type: 'scatterpolar', r: [...means, means[0]], theta: [...labels, labels[0]],
+      fill: 'toself', name: c, line: {color: CFG_COLORS[ci]},
+      fillcolor: CFG_COLORS[ci] + '22',
+    };
+  });
+  Plotly.react(document.getElementById('cfg-radar'), traces, {
+    polar: {radialaxis: {visible: true, range: [0, 1]}},
+    paper_bgcolor: '#fff', margin: {l: 60, r: 60, t: 40, b: 40},
+    legend: {orientation: 'h', y: -0.1},
+  }, PL);
+}
+
+function renderCfgHVBox() {
+  const byC = _cfgStats();
+  const cfgs = Object.keys(byC).sort();
+  if (!cfgs.length) return;
+  const traces = cfgs.map((c, ci) => ({
+    y: byC[c].map(r => r.HV_norm).filter(v => v != null),
+    type: 'box', name: c, marker: {color: CFG_COLORS[ci]}, boxpoints: 'all', jitter: 0.3,
+  }));
+  Plotly.react(document.getElementById('cfg-hv-box'), traces, {
+    yaxis: {title: 'HV norm', range: [0, 1], gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff', margin: {l: 50, r: 10, t: 10, b: 40},
+    showlegend: false,
+  }, PL);
+}
+
+function renderCfgCPUBox() {
+  const byC = _cfgStats();
+  const cfgs = Object.keys(byC).sort();
+  if (!cfgs.length) return;
+  const traces = cfgs.map((c, ci) => ({
+    y: byC[c].map(r => r.total_cpu_s).filter(v => v != null),
+    type: 'box', name: c, marker: {color: CFG_COLORS[ci]}, boxpoints: 'all', jitter: 0.3,
+  }));
+  Plotly.react(document.getElementById('cfg-cpu-box'), traces, {
+    yaxis: {title: 'CPU (s)', type: 'log', gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff', margin: {l: 55, r: 10, t: 10, b: 40},
+    showlegend: false,
+  }, PL);
+}
+
+function renderCfgPFBar() {
+  const byC = _cfgStats();
+  const cfgs = Object.keys(byC).sort();
+  if (!cfgs.length) return;
+  const means = cfgs.map(c => {
+    const vals = byC[c].map(r => r.n_pareto).filter(v => v != null);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+  });
+  Plotly.react(document.getElementById('cfg-pf-bar'), [{
+    x: cfgs, y: means, type: 'bar',
+    marker: {color: cfgs.map((_, i) => CFG_COLORS[i])},
+    hovertemplate: '%{x}<br>|PF| avg = %{y:.1f}<extra></extra>',
+  }], {
+    yaxis: {title: 'Avg |PF|', gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff', margin: {l: 50, r: 10, t: 10, b: 40}, showlegend: false,
+  }, PL);
+}
+
+function renderCfgCertBar() {
+  const byC = _cfgStats();
+  const cfgs = Object.keys(byC).sort();
+  if (!cfgs.length) return;
+  const pcts = cfgs.map(c => {
+    let tot = 0, cert = 0;
+    byC[c].forEach(r => { tot += (r.n_pareto || 0); cert += (r.n_certified || 0); });
+    return tot > 0 ? (cert / tot * 100) : 0;
+  });
+  Plotly.react(document.getElementById('cfg-cert-bar'), [{
+    x: cfgs, y: pcts, type: 'bar',
+    marker: {color: pcts.map(p => p >= 90 ? '#16a34a' : p >= 70 ? '#d97706' : '#dc2626')},
+    hovertemplate: '%{x}<br>%{y:.1f}% optimal<extra></extra>',
+  }], {
+    yaxis: {title: '% optimal', range: [0, 105], gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff', margin: {l: 50, r: 10, t: 10, b: 40}, showlegend: false,
+  }, PL);
+}
+
+/* ══════════════════════════════════════════
+   TAB: Table
+   ══════════════════════════════════════════ */
+
+const TBL_COLS = [
+  {key: 'run_name', label: 'Run', fmt: v => shortName(v)},
+  {key: 'source', label: 'Src', fmt: v => v || ''},
+  {key: 'n_tasks', label: 'n', fmt: v => v ?? ''},
+  {key: 'config_name', label: 'Cfg', fmt: v => v || ''},
+  {key: 'status', label: 'Status', fmt: v => {
+    const cls = v === 'OK' ? 'ok' : (v === 'INFEASIBLE' ? 'warn' : 'err');
+    return `<span class="badge ${cls}">${v || '?'}</span>`;
+  }},
+  {key: 'n_pareto', label: '|PF|', fmt: v => v ?? ''},
+  {key: 'n_certified', label: 'Opt', fmt: v => v ?? ''},
+  {key: 'total_cpu_s', label: 'CPU', fmt: v => v != null ? fmtTime(v) : ''},
+  {key: 'HV_norm', label: 'HV norm', fmt: v => v != null ? v.toFixed(4) : ''},
+  {key: 'spacing', label: 'Spacing', fmt: v => v != null ? v.toFixed(3) : ''},
+  {key: 'spread_delta', label: 'Spread', fmt: v => v != null ? v.toFixed(3) : ''},
+  {key: 'max_spread', label: 'MaxSpr', fmt: v => v != null ? v.toFixed(1) : ''},
+  {key: 'gap_mean_pct', label: 'Gap%', fmt: v => v != null ? v.toFixed(2) : ''},
+  {key: 'min_cost', label: 'C.min', fmt: v => v != null ? v.toFixed(1) : ''},
+  {key: 'max_energy', label: 'E.max', fmt: v => v != null ? v.toFixed(2) : ''},
+];
+
+document.getElementById('tbl-filter').addEventListener('input', () => renderTable());
+
+function renderTable() {
+  const hd = document.getElementById('tbl-head');
+  hd.innerHTML = '<tr>' + TBL_COLS.map((c, i) =>
+    `<th onclick="sortTable(${i})">${c.label} ⇅</th>`
+  ).join('') + '</tr>';
+
+  let rows = Object.values(DATA.runs);
+
+  // Filter
+  const filt = (document.getElementById('tbl-filter').value || '').toLowerCase();
+  if (filt) {
+    rows = rows.filter(r => {
+      const haystack = [r.run_name, r.source, r.config_name, r.base_instance, r.status].join(' ').toLowerCase();
+      return haystack.includes(filt);
+    });
+  }
+
+  // Sort
+  if (sortCol !== null) {
+    const key = TBL_COLS[sortCol].key;
+    rows.sort((a, b) => {
+      let va = a[key], vb = b[key];
+      if (va == null) va = sortAsc ? Infinity : -Infinity;
+      if (vb == null) vb = sortAsc ? Infinity : -Infinity;
+      if (typeof va === 'number' && typeof vb === 'number') return sortAsc ? va - vb : vb - va;
+      return sortAsc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+    });
+  }
+
+  const bd = document.getElementById('tbl-body');
+  bd.innerHTML = rows.map(r =>
+    `<tr onclick="openSidebar('${r.run_name}')">` + TBL_COLS.map(c => `<td>${c.fmt(r[c.key])}</td>`).join('') + '</tr>'
+  ).join('');
+}
+
+function sortTable(colIdx) {
+  if (sortCol === colIdx) sortAsc = !sortAsc;
+  else { sortCol = colIdx; sortAsc = true; }
+  renderTable();
+}
+
+/* ══════════════════════════════════════════
+   TAB: Analyse DOE (Taguchi)
+   ══════════════════════════════════════════ */
+
+document.getElementById('doe-response').addEventListener('change', () => {
+  renderMainEffects(); renderFactorImportance(); renderSNRatio();
+});
+
+function _factorLevels(runs) {
+  const factors = [
+    {key: 'alpha_ci', label: '\u03b1 (CI)', color: '#2563eb'},
+    {key: 'beta_su', label: '\u03b2 (SU)', color: '#dc2626'},
+    {key: 'gamma_setup', label: '\u03b3 (Setup)', color: '#16a34a'},
+    {key: 'sigma_si', label: '\u03c3 (SI)', color: '#d97706'},
+  ];
+  factors.forEach(f => {
+    const vals = [...new Set(runs.map(r => r[f.key]).filter(v => v != null))].sort((a, b) => a - b);
+    f.levels = vals;
+  });
+  return factors;
+}
+
+function renderMainEffects() {
+  const runs = okRuns();
+  const rk = document.getElementById('doe-response').value;
+  const factors = _factorLevels(runs);
+  const traces = factors.map(f => {
+    const means = f.levels.map(lv => {
+      const m = runs.filter(r => r[f.key] === lv && r[rk] != null);
+      return m.length ? m.reduce((s, r) => s + r[rk], 0) / m.length : null;
+    });
+    return {
+      x: f.levels.map(v => v.toFixed(4)), y: means,
+      mode: 'lines+markers', name: f.label,
+      marker: {size: 10, color: f.color}, line: {width: 3, color: f.color},
+      hovertemplate: '<b>' + f.label + '</b><br>Level: %{x}<br>Mean: %{y:.4f}<extra></extra>',
+    };
+  });
+  const rl = document.getElementById('doe-response').selectedOptions[0].text;
+  Plotly.react(document.getElementById('doe-main-effects'), traces, {
+    xaxis: {title: 'Factor level', gridcolor: '#e2e8f0', type: 'category'},
+    yaxis: {title: rl, gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff',
+    margin: {l: 60, r: 20, t: 10, b: 50}, legend: {orientation: 'h', y: -0.2},
+  }, PL);
+}
+
+function renderFactorImportance() {
+  const runs = okRuns();
+  const rk = document.getElementById('doe-response').value;
+  const factors = _factorLevels(runs);
+  const ranges = factors.map(f => {
+    const means = f.levels.map(lv => {
+      const m = runs.filter(r => r[f.key] === lv && r[rk] != null);
+      return m.length ? m.reduce((s, r) => s + r[rk], 0) / m.length : 0;
+    });
+    return {label: f.label, range: Math.max(...means) - Math.min(...means), color: f.color};
+  }).sort((a, b) => b.range - a.range);
+  Plotly.react(document.getElementById('doe-factor-importance'), [{
+    x: ranges.map(r => r.label), y: ranges.map(r => r.range),
+    type: 'bar', marker: {color: ranges.map(r => r.color)},
+    hovertemplate: '%{x}<br>Range: %{y:.4f}<extra></extra>',
+  }], {
+    yaxis: {title: 'Effect range', gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff',
+    margin: {l: 55, r: 10, t: 10, b: 50}, showlegend: false,
+  }, PL);
+}
+
+function renderSourceBox() {
+  var allRuns = Object.values(DATA.runs).filter(r => r.status === 'OK');
+  var scholl = allRuns.filter(r => r.source === 'Scholl');
+  var otto = allRuns.filter(r => r.source === 'Otto');
+  Plotly.react(document.getElementById('doe-source-box'), [
+    {y: scholl.map(r => r.HV_norm).filter(v => v != null), type: 'box', name: 'Scholl (14)',
+     marker: {color: '#2563eb'}, boxpoints: 'all', jitter: 0.3},
+    {y: otto.map(r => r.HV_norm).filter(v => v != null), type: 'box', name: 'Otto (14)',
+     marker: {color: '#dc2626'}, boxpoints: 'all', jitter: 0.3},
+  ], {
+    yaxis: {title: 'Normalized HV', range: [0, 1], gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff', margin: {l: 50, r: 10, t: 10, b: 40},
+  }, PL);
+}
+
+function renderInteraction() {
+  const runs = okRuns();
+  const factors = _factorLevels(runs);
+  const alphaF = factors.find(f => f.key === 'alpha_ci');
+  const gammaF = factors.find(f => f.key === 'gamma_setup');
+  if (!alphaF || !gammaF || !alphaF.levels.length || !gammaF.levels.length) return;
+  const traces = alphaF.levels.map((aLv, ai) => {
+    const means = gammaF.levels.map(gLv => {
+      const m = runs.filter(r => r.alpha_ci === aLv && r.gamma_setup === gLv && r.HV_norm != null);
+      return m.length ? m.reduce((s, r) => s + r.HV_norm, 0) / m.length : null;
+    });
+    return {
+      x: gammaF.levels.map(v => v.toFixed(4)), y: means,
+      mode: 'lines+markers', name: '\u03b1=' + aLv.toFixed(3),
+      marker: {size: 9}, line: {width: 2},
+      hovertemplate: '\u03b1=' + aLv.toFixed(3) + '<br>\u03b3=%{x}<br>HV=%{y:.4f}<extra></extra>',
+    };
+  });
+  Plotly.react(document.getElementById('doe-interaction'), traces, {
+    xaxis: {title: '\u03b3 (Setup)', gridcolor: '#e2e8f0', type: 'category'},
+    yaxis: {title: 'Normalized HV', gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff',
+    margin: {l: 55, r: 10, t: 10, b: 50}, legend: {orientation: 'h', y: -0.25},
+  }, PL);
+}
+
+function renderSNRatio() {
+  const runs = okRuns();
+  const rk = document.getElementById('doe-response').value;
+  const factors = _factorLevels(runs);
+  const traces = factors.map(f => {
+    const snValues = f.levels.map(lv => {
+      const m = runs.filter(r => r[f.key] === lv && r[rk] != null && r[rk] > 0);
+      if (!m.length) return null;
+      const mInvSq = m.reduce((s, r) => s + 1 / (r[rk] * r[rk]), 0) / m.length;
+      return -10 * Math.log10(mInvSq);
+    });
+    return {
+      x: f.levels.map(v => v.toFixed(4)), y: snValues,
+      mode: 'lines+markers', name: f.label,
+      marker: {size: 9, color: f.color}, line: {width: 2, color: f.color},
+    };
+  });
+  const rl = document.getElementById('doe-response').selectedOptions[0].text;
+  Plotly.react(document.getElementById('doe-sn-ratio'), traces, {
+    xaxis: {title: 'Factor level', gridcolor: '#e2e8f0', type: 'category'},
+    yaxis: {title: 'S/N (dB) \u2014 ' + rl, gridcolor: '#e2e8f0'},
+    plot_bgcolor: '#fff', paper_bgcolor: '#fff',
+    margin: {l: 60, r: 10, t: 10, b: 50}, legend: {orientation: 'h', y: -0.25},
+  }, PL);
+}
+
+/* ══════════════════════════════════════════
+   Auto-refresh
+   ══════════════════════════════════════════ */
+
+function startRefresh() { stopRefresh(); refreshTimer = setInterval(fetchData, 15000); }
+function stopRefresh() { if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; } }
+
+document.getElementById('auto-refresh').addEventListener('change', e => {
+  e.target.checked ? startRefresh() : stopRefresh();
+});
+
+fetchData();
+startRefresh();
+</script>
+</body>
+</html>
+"""
+
+
+# ═══════════════════════════════════════════════════════════════
+# HTTP Server
+# ═══════════════════════════════════════════════════════════════
+
+class DashboardHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/":
+            self._respond(200, "text/html", HTML_PAGE.encode("utf-8"))
+        elif self.path == "/api/data":
+            payload = json.dumps(scan_results(), default=str)
+            self._respond(200, "application/json", payload.encode("utf-8"))
+        else:
+            self.send_error(404)
+
+    def _respond(self, code, content_type, body):
+        self.send_response(code)
+        self.send_header("Content-Type", content_type + "; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):
+        pass  # silence per-request logs
+
+
+def main():
+    parser = argparse.ArgumentParser(description="DOE L9 live dashboard")
+    parser.add_argument("--port", type=int, default=8050)
+    args = parser.parse_args()
+
+    server = http.server.HTTPServer(("", args.port), DashboardHandler)
+    url = f"http://localhost:{args.port}"
+    print(f"Dashboard → {url}")
+    print("Ctrl-C to stop.\n")
+
+    # Try to open browser
+    try:
+        import webbrowser
+        webbrowser.open(url)
+    except Exception:
+        pass
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nDashboard stopped.")
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()
