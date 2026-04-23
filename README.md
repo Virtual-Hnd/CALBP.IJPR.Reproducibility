@@ -40,7 +40,10 @@ pip install -r requirements.txt
 External solver:
 
 - IBM ILOG CPLEX must be installed on the machine
-- the `cplex` command must be available on `PATH`
+- either the `cplex` command must be available on `PATH`, or set one of:
+  `CPLEX_CMD=/absolute/path/to/cplex`
+  `CPLEX_BIN=/absolute/path/to/cplex/bin/arm64_osx`
+  `CPLEX_STUDIO_DIR=/absolute/path/to/CPLEX_Studio2212`
 
 ## Quick Validation
 

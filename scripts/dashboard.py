@@ -5,21 +5,25 @@ dashboard.py — Live monitoring dashboard for DOE L9 campaign.
 Usage:
     python scripts/dashboard.py              # http://localhost:8050
     python scripts/dashboard.py --port 9000  # custom port
+    python scripts/dashboard.py --host 0.0.0.0 --no-open
 """
 
 import argparse
 import csv
 import json
 import http.server
+import os
 import sys
 from pathlib import Path
 from datetime import datetime
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-RESULTS_DIR = PROJECT_ROOT / "results_doe_L9"
+RESULTS_DIR = Path(
+    os.environ.get("DOE_RESULTS_DIR", str(PROJECT_ROOT / "results_doe_L9"))
+).expanduser()
 SOLUTIONS_DIR = RESULTS_DIR / "solutions"
 
-ALL_CONFIGS = [f"c{i:02d}" for i in range(1, 10)]
+DEFAULT_CONFIGS = [f"c{i:02d}" for i in range(1, 10)]
 ALL_MODES = ["HI", "CI", "SEH", "SEC", "SU", "SIH", "SIC"]
 
 NUMERIC_FIELDS = {
@@ -41,11 +45,18 @@ def _to_num(val):
         return val
 
 
+def _cfg_sort_key(cfg: str) -> tuple[int, str]:
+    if not cfg:
+        return (10**9, "")
+    digits = "".join(ch for ch in cfg if ch.isdigit())
+    return (int(digits) if digits else 10**9, cfg)
+
+
 def scan_results() -> dict:
-    """Collect all dashboard data from results_doe_L9/."""
+    """Collect all dashboard data from the configured DOE results folder."""
     data = {
         "timestamp": datetime.now().isoformat(),
-        "configs": ALL_CONFIGS,
+        "configs": [],
         "instances": [],
         "total_expected": 0,
         "runs": {},
@@ -53,6 +64,7 @@ def scan_results() -> dict:
         "summary": {},
     }
     instance_set = set()
+    config_set = set()
 
     # 1. Read manifest for expected instances
     manifest = RESULTS_DIR / "doe_manifest.csv"
@@ -61,6 +73,8 @@ def scan_results() -> dict:
             with open(manifest, encoding="utf-8") as f:
                 for row in csv.DictReader(f):
                     instance_set.add(row["base_instance"])
+                    if row.get("config_name"):
+                        config_set.add(row["config_name"])
         except Exception:
             pass
 
@@ -114,6 +128,8 @@ def scan_results() -> dict:
                     data["runs"][run_name] = run_data
                     if run_data["base_instance"]:
                         instance_set.add(run_data["base_instance"])
+                    if run_data["config_name"]:
+                        config_set.add(run_data["config_name"])
                 except Exception:
                     pass
 
@@ -168,12 +184,15 @@ def scan_results() -> dict:
                         }
                         if row.get("base_instance"):
                             instance_set.add(row["base_instance"])
+                        if row.get("config_name"):
+                            config_set.add(row["config_name"])
         except Exception:
             pass
 
     # 4. Summary
+    data["configs"] = sorted(config_set, key=_cfg_sort_key) or DEFAULT_CONFIGS
     data["instances"] = sorted(instance_set)
-    data["total_expected"] = len(data["instances"]) * len(ALL_CONFIGS)
+    data["total_expected"] = len(data["instances"]) * len(data["configs"])
 
     ok = [r for r in data["runs"].values() if r.get("status") == "OK"]
     err = [r for r in data["runs"].values() if r.get("status") not in ("OK", None)]
@@ -206,7 +225,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DOE L9 — Dashboard</title>
+<title>DOE — Dashboard</title>
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
 :root {
@@ -375,7 +394,7 @@ main { max-width: 1500px; margin: 0 auto; padding: 20px 24px 60px; }
 <body>
 
 <header>
-  <h1>DOE L9 <span>— CALBP Dashboard</span></h1>
+  <h1>DOE <span>— CALBP Dashboard</span></h1>
   <div class="hdr-right">
     <span id="last-refresh"></span>
     <label><input type="checkbox" id="auto-refresh" checked> Auto 15 s</label>
@@ -1710,20 +1729,28 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description="DOE L9 live dashboard")
+    parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8050)
+    parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Do not try to open a browser window automatically.",
+    )
     args = parser.parse_args()
 
-    server = http.server.HTTPServer(("", args.port), DashboardHandler)
-    url = f"http://localhost:{args.port}"
+    server = http.server.HTTPServer((args.host, args.port), DashboardHandler)
+    shown_host = "localhost" if args.host in {"", "0.0.0.0"} else args.host
+    url = f"http://{shown_host}:{args.port}"
     print(f"Dashboard → {url}")
     print("Ctrl-C to stop.\n")
 
     # Try to open browser
-    try:
-        import webbrowser
-        webbrowser.open(url)
-    except Exception:
-        pass
+    if not args.no_open:
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except Exception:
+            pass
 
     try:
         server.serve_forever()

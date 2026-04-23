@@ -29,6 +29,7 @@ Usage:
 import argparse
 import csv
 import json
+import os
 import signal
 import sys
 import time
@@ -49,7 +50,7 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from calbp.doe.taguchi import L9_MATRIX, PILOT_FACTORS
+from calbp.doe.taguchi import L9_MATRIX, PILOT_FACTORS, L36_MATRIX, L36_FACTORS
 from calbp.doe.scenario import build_scenarios, Scenario, write_manifest
 from calbp.generation.instance_builder import build_cal_instance
 from calbp.data.instance_io import write_txt, read_txt
@@ -67,8 +68,7 @@ _spec.loader.exec_module(_milp)
 # ═══════════════════════════════════════════════════════════════════════
 # Paths & benchmark definition
 # ═══════════════════════════════════════════════════════════════════════
-RESULTS_DIR   = PROJECT_ROOT / "results_doe_L9"
-SOLUTIONS_DIR = RESULTS_DIR / "solutions"
+DEFAULT_RESULTS_DIR = PROJECT_ROOT / "results_doe_L9"
 
 # Scholl instances — base .txt in CAL-instances/txt/
 SCHOLL_TXT_DIR = PROJECT_ROOT / "CAL-instances" / "txt"
@@ -100,6 +100,20 @@ OTTO_SELECTED_IDS = [
 # Fixed parameters (not DOE factors)
 FIXED_R_E = 0.05   # kW
 FIXED_C_C = 5.0    # €/h
+
+
+def resolve_results_dirs(results_dir: str | None) -> tuple[Path, Path]:
+    """Resolve the output directory tree for the current DOE run."""
+    base = Path(results_dir).expanduser() if results_dir else DEFAULT_RESULTS_DIR
+    return base, base / "solutions"
+
+
+def resolve_design(design: str) -> tuple[list[tuple], dict, str, str]:
+    """Map a CLI design choice to the underlying OA/factor definitions."""
+    normalized = design.lower()
+    if normalized == "l36":
+        return L36_MATRIX, L36_FACTORS, "L36", "L36_FACTORS"
+    return L9_MATRIX, PILOT_FACTORS, "L9", "PILOT_FACTORS"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -469,17 +483,32 @@ def build_master_row(
 # ═══════════════════════════════════════════════════════════════════════
 
 def run_doe(args):
-    """Execute the full L9 DOE campaign."""
+    """Execute the selected DOE campaign."""
 
     # ── 1. Build scenarios ────────────────────────────────────────
+    oa_matrix, factors, design_label, factor_label = resolve_design(args.design)
     scenarios = build_scenarios(
-        L9_MATRIX, PILOT_FACTORS,
+        oa_matrix, factors,
         seed_base=42,
         default_R_e=FIXED_R_E,
         default_C_c=FIXED_C_C,
         level_strategy="uniform",
     )
-    print(f"[DOE] {len(scenarios)} configs from L9 × PILOT_FACTORS")
+    if args.fixed_r_e is not None:
+        for sc in scenarios:
+            sc.R_e = round(args.fixed_r_e, 4)
+    if args.fixed_c_c is not None:
+        for sc in scenarios:
+            sc.C_c = round(args.fixed_c_c, 2)
+    print(f"[DOE] {len(scenarios)} configs from {design_label} × {factor_label}")
+    if args.fixed_r_e is not None or args.fixed_c_c is not None:
+        print(
+            "[DOE] Fixed overrides:"
+            f" R_e={args.fixed_r_e if args.fixed_r_e is not None else 'design'}"
+            f" C_c={args.fixed_c_c if args.fixed_c_c is not None else 'design'}"
+        )
+
+    results_dir, solutions_dir = resolve_results_dirs(args.results_dir)
 
     # Filter configs
     if args.configs:
@@ -514,15 +543,15 @@ def run_doe(args):
     print(f"[DOE] Instances: {n_scholl} Scholl + {n_otto} Otto = {len(all_instances)}")
     print(f"[DOE] Total runs: {len(scenarios)} × {len(all_instances)} = {total_runs}")
     print(f"[DOE] Time limit: {args.time_limit}s per ε-step")
-    print(f"[DOE] Results → {RESULTS_DIR}")
+    print(f"[DOE] Results → {results_dir}")
 
     # ── 3. Prepare output dirs ────────────────────────────────────
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    SOLUTIONS_DIR.mkdir(parents=True, exist_ok=True)
+    results_dir.mkdir(parents=True, exist_ok=True)
+    solutions_dir.mkdir(parents=True, exist_ok=True)
 
     # Write manifest
     inst_names = [n for n, _, _ in all_instances]
-    write_manifest(scenarios, inst_names, RESULTS_DIR / "doe_manifest.csv")
+    write_manifest(scenarios, inst_names, results_dir / "doe_manifest.csv")
 
     # ── 4. Solve loop ────────────────────────────────────────────
     #    Order: all Scholl × all configs, then all Otto × all configs.
@@ -544,7 +573,7 @@ def run_doe(args):
     for sc, inst_name, txt_path, source in ordered_runs:
             done += 1
             run_name = f"{inst_name}_{sc.config_name}"
-            sol_dir = SOLUTIONS_DIR / run_name
+            sol_dir = solutions_dir / run_name
 
             # Resume: skip if already solved
             run_info_path = sol_dir / "run_info.json"
@@ -652,7 +681,7 @@ def run_doe(args):
     elapsed = time.time() - t_campaign_start
 
     if all_rows:
-        csv_path = RESULTS_DIR / "doe_results.csv"
+        csv_path = results_dir / "doe_results.csv"
         with open(csv_path, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=MASTER_FIELDS)
             writer.writeheader()
@@ -661,7 +690,7 @@ def run_doe(args):
 
     # ── 6. Print summary ─────────────────────────────────────────
     print(f"\n{'='*65}")
-    print(f"  DOE L9 COMPLETE — {len(all_rows)} runs in {elapsed:.0f}s")
+    print(f"  DOE {design_label} COMPLETE — {len(all_rows)} runs in {elapsed:.0f}s")
     print(f"{'='*65}")
 
     ok_rows = [r for r in all_rows if r["status"] == "OK"]
@@ -699,7 +728,36 @@ def run_doe(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="L9 Taguchi DOE — MILP solver campaign"
+        description="Taguchi DOE — MILP solver campaign"
+    )
+    parser.add_argument(
+        "--design", choices=("l9", "l36"),
+        default=os.environ.get("DOE_DESIGN", "l9").lower(),
+        help="DOE design to instantiate (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--results-dir", default=os.environ.get("DOE_RESULTS_DIR"),
+        help="Output directory for manifest/results/solutions.",
+    )
+    parser.add_argument(
+        "--fixed-r-e",
+        type=float,
+        default=(
+            float(os.environ["DOE_FIXED_R_E"])
+            if os.environ.get("DOE_FIXED_R_E")
+            else None
+        ),
+        help="Override R_e for every scenario.",
+    )
+    parser.add_argument(
+        "--fixed-c-c",
+        type=float,
+        default=(
+            float(os.environ["DOE_FIXED_C_C"])
+            if os.environ.get("DOE_FIXED_C_C")
+            else None
+        ),
+        help="Override C_c for every scenario.",
     )
     parser.add_argument(
         "--time-limit", type=int, default=300,

@@ -499,14 +499,38 @@ def compute_global_indicators(pareto_points):
 def solve_model(model, time_limit=3600):
     """Solve model with CPLEX (or CBC fallback)."""
 
-    cplex_paths = [
+    cplex_paths = []
+
+    env_path = os.environ.get("CPLEX_CMD")
+    if env_path:
+        cplex_paths.append(env_path)
+
+    env_bin = os.environ.get("CPLEX_BIN")
+    if env_bin:
+        cplex_paths.append(os.path.join(env_bin, "cplex"))
+
+    studio_dir = os.environ.get("CPLEX_STUDIO_DIR")
+    if studio_dir:
+        cplex_paths.extend([
+            os.path.join(studio_dir, "cplex", "bin", "arm64_osx", "cplex"),
+            os.path.join(studio_dir, "cplex", "bin", "x86-64_osx", "cplex"),
+            os.path.join(studio_dir, "cplex", "bin", "x86-64_linux", "cplex"),
+            os.path.join(studio_dir, "cplex", "bin", "x64_win64", "cplex.exe"),
+        ])
+
+    cplex_paths.extend([
+        "/Users/admin/Applications/CPLEX_Studio2212/cplex/bin/arm64_osx/cplex",
+        "/Applications/CPLEX_Studio2212/cplex/bin/arm64_osx/cplex",
+        "/Applications/CPLEX_Studio2212/cplex/bin/x86-64_osx/cplex",
         "/home/hind.bahir/CPLEX_Studio2211/cplex/bin/x86-64_linux/cplex",
         "/Applications/CPLEX_Studio2211/cplex/bin/arm64_osx/cplex",
         "/Applications/CPLEX_Studio2211/cplex/bin/x86-64_osx/cplex",
+        "/opt/ibm/ILOG/CPLEX_Studio2212/cplex/bin/x86-64_linux/cplex",
         "/opt/ibm/ILOG/CPLEX_Studio2211/cplex/bin/x86-64_linux/cplex",
+        "C:/Program Files/IBM/ILOG/CPLEX_Studio2212/cplex/bin/x64_win64/cplex.exe",
         "C:/Program Files/IBM/ILOG/CPLEX_Studio2211/cplex/bin/x64_win64/cplex.exe",
         "cplex"
-    ]
+    ])
 
     cplex_path = None
     for path in cplex_paths:

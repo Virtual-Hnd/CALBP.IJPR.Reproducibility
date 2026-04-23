@@ -1,12 +1,24 @@
 #!/usr/bin/env python3
 """Quick diagnostic: count run statuses in DOE results."""
 import json
+import os
+import sys
 from pathlib import Path
 from collections import Counter
 
-sols = Path(__file__).resolve().parent.parent / "results_doe_L9" / "solutions"
+results_dir = Path(
+    os.environ.get(
+        "DOE_RESULTS_DIR",
+        str(Path(__file__).resolve().parent.parent / "results_doe_L9"),
+    )
+)
+sols = results_dir / "solutions"
 statuses = Counter()
 non_ok = []
+
+if not sols.exists():
+    print(f"Aucun dossier de solutions: {sols}")
+    sys.exit(0)
 
 for d in sorted(sols.iterdir()):
     if not d.is_dir():

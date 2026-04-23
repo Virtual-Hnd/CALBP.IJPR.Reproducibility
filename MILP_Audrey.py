@@ -325,12 +325,39 @@ def build_model_zero_energy(data):
 # ═══════════════════════════════════════════════════════════════════════
 
 def _find_cplex():
-    paths = [
+    env_path = os.environ.get("CPLEX_CMD")
+    if env_path and os.path.isfile(env_path):
+        return env_path
+
+    env_bin = os.environ.get("CPLEX_BIN")
+    if env_bin:
+        candidate = os.path.join(env_bin, "cplex")
+        if os.path.isfile(candidate):
+            return candidate
+
+    studio_dir = os.environ.get("CPLEX_STUDIO_DIR")
+    paths = []
+    if studio_dir:
+        paths.extend([
+            os.path.join(studio_dir, "cplex", "bin", "arm64_osx", "cplex"),
+            os.path.join(studio_dir, "cplex", "bin", "x86-64_osx", "cplex"),
+            os.path.join(studio_dir, "cplex", "bin", "x86-64_linux", "cplex"),
+            os.path.join(studio_dir, "cplex", "bin", "x64_win64", "cplex.exe"),
+        ])
+
+    # Prefer known local installs before falling back to PATH.
+    paths.extend([
+        "/Users/admin/Applications/CPLEX_Studio2212/cplex/bin/arm64_osx/cplex",
+        "/Applications/CPLEX_Studio2212/cplex/bin/arm64_osx/cplex",
+        "/Applications/CPLEX_Studio2212/cplex/bin/x86-64_osx/cplex",
         "/Applications/CPLEX_Studio2211/cplex/bin/arm64_osx/cplex",
         "/Applications/CPLEX_Studio2211/cplex/bin/x86-64_osx/cplex",
         "/home/hind.bahir/CPLEX_Studio2211/cplex/bin/x86-64_linux/cplex",
+        "/opt/ibm/ILOG/CPLEX_Studio2212/cplex/bin/x86-64_linux/cplex",
         "/opt/ibm/ILOG/CPLEX_Studio2211/cplex/bin/x86-64_linux/cplex",
-    ]
+        "C:/Program Files/IBM/ILOG/CPLEX_Studio2212/cplex/bin/x64_win64/cplex.exe",
+        "C:/Program Files/IBM/ILOG/CPLEX_Studio2211/cplex/bin/x64_win64/cplex.exe",
+    ])
     for p in paths:
         if os.path.isfile(p):
             return p
