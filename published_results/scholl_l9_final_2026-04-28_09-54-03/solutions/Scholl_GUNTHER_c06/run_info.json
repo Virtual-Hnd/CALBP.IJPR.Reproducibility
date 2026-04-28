@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_GUNTHER_c06",
+  "base_instance": "Scholl_GUNTHER",
+  "source": "Scholl",
+  "n_tasks": 35,
+  "T": 60.0,
+  "config": {
+    "config_name": "c06",
+    "config_id": 6,
+    "alpha_ci": 1.2683,
+    "beta_su": 0.933,
+    "gamma_setup": 0.9073,
+    "sigma_si": 1.188,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 6042
+  },
+  "status": "OK",
+  "n_pareto": 8,
+  "n_certified": 1,
+  "total_cpu_s": 3930.3,
+  "gap_mean_pct": 86.093,
+  "gap_max_pct": 100.0,
+  "timestamp": "2026-04-23T09:30:45.494947",
+  "indicators": {
+    "PF_size": 8,
+    "HV_abs": 16271.62,
+    "HV_norm": 0.575713,
+    "ref_cost": 352.0,
+    "ref_energy": 141.317,
+    "ideal_cost": 152.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 320.0,
+    "nadir_energy": 128.47,
+    "spacing": 16.973721,
+    "spread_delta": 0.201653,
+    "max_spread": 211.491231,
+    "cost_range": 168.0,
+    "energy_range": 128.47
+  }
+}

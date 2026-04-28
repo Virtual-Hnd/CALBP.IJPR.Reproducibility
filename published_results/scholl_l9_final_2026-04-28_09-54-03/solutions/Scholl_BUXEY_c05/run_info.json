@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_BUXEY_c05",
+  "base_instance": "Scholl_BUXEY",
+  "source": "Scholl",
+  "n_tasks": 29,
+  "T": 60.0,
+  "config": {
+    "config_name": "c05",
+    "config_id": 5,
+    "alpha_ci": 1.2972,
+    "beta_su": 0.6475,
+    "gamma_setup": 1.0861,
+    "sigma_si": 1.0772,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 5042
+  },
+  "status": "OK",
+  "n_pareto": 8,
+  "n_certified": 1,
+  "total_cpu_s": 3621.25,
+  "gap_mean_pct": 54.9518,
+  "gap_max_pct": 97.4282,
+  "timestamp": "2026-04-22T22:08:47.324088",
+  "indicators": {
+    "PF_size": 8,
+    "HV_abs": 16196.45,
+    "HV_norm": 0.617205,
+    "ref_cost": 264.0,
+    "ref_energy": 136.675,
+    "ideal_cost": 72.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 240.0,
+    "nadir_energy": 124.25,
+    "spacing": 18.003213,
+    "spread_delta": 0.235859,
+    "max_spread": 208.95469,
+    "cost_range": 168.0,
+    "energy_range": 124.25
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_JAESCHKE_c05",
+  "base_instance": "Scholl_JAESCHKE",
+  "source": "Scholl",
+  "n_tasks": 9,
+  "T": 30.0,
+  "config": {
+    "config_name": "c05",
+    "config_id": 5,
+    "alpha_ci": 1.2972,
+    "beta_su": 0.6475,
+    "gamma_setup": 1.0861,
+    "sigma_si": 1.0772,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 5042
+  },
+  "status": "OK",
+  "n_pareto": 4,
+  "n_certified": 4,
+  "total_cpu_s": 0.47,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-22T18:35:56.879373",
+  "indicators": {
+    "PF_size": 4,
+    "HV_abs": 730.75,
+    "HV_norm": 0.51718,
+    "ref_cost": 88.0,
+    "ref_energy": 20.185,
+    "ideal_cost": 18.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 80.0,
+    "nadir_energy": 18.35,
+    "spacing": 16.051168,
+    "spread_delta": 0.489147,
+    "max_spread": 64.658507,
+    "cost_range": 62.0,
+    "energy_range": 18.35
+  }
+}

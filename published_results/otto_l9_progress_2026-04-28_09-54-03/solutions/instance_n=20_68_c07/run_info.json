@@ -1,0 +1,41 @@
+{
+  "run_name": "instance_n=20_68_c07",
+  "base_instance": "instance_n=20_68",
+  "source": "Otto",
+  "n_tasks": 20,
+  "T": 1000.0,
+  "config": {
+    "config_name": "c07",
+    "config_id": 7,
+    "alpha_ci": 2.0414,
+    "beta_su": 0.4438,
+    "gamma_setup": 1.0683,
+    "sigma_si": 1.2229,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 7042
+  },
+  "status": "OK",
+  "n_pareto": 3,
+  "n_certified": 3,
+  "total_cpu_s": 11.45,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-26T19:28:38.559071",
+  "indicators": {
+    "PF_size": 3,
+    "HV_abs": 23146.06,
+    "HV_norm": 0.586001,
+    "ref_cost": 132.0,
+    "ref_energy": 572.44,
+    "ideal_cost": 63.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 120.0,
+    "nadir_energy": 520.4,
+    "spacing": 131.173981,
+    "spread_delta": 0.450241,
+    "max_spread": 523.51233,
+    "cost_range": 57.0,
+    "energy_range": 520.4
+  }
+}

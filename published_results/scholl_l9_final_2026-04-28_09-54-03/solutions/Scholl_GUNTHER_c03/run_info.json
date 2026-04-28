@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_GUNTHER_c03",
+  "base_instance": "Scholl_GUNTHER",
+  "source": "Scholl",
+  "n_tasks": 35,
+  "T": 60.0,
+  "config": {
+    "config_name": "c03",
+    "config_id": 3,
+    "alpha_ci": 0.8528,
+    "beta_su": 0.9373,
+    "gamma_setup": 1.0988,
+    "sigma_si": 1.4043,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 3042
+  },
+  "status": "OK",
+  "n_pareto": 11,
+  "n_certified": 2,
+  "total_cpu_s": 5516.01,
+  "gap_mean_pct": 73.8216,
+  "gap_max_pct": 100.0,
+  "timestamp": "2026-04-23T06:43:28.887981",
+  "indicators": {
+    "PF_size": 11,
+    "HV_abs": 28458.32,
+    "HV_norm": 0.60241,
+    "ref_cost": 396.0,
+    "ref_energy": 145.805,
+    "ideal_cost": 72.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 360.0,
+    "nadir_energy": 132.55,
+    "spacing": 13.807282,
+    "spread_delta": 0.166142,
+    "max_spread": 317.038645,
+    "cost_range": 288.0,
+    "energy_range": 132.55
+  }
+}

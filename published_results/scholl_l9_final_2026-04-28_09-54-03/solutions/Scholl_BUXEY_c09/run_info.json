@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_BUXEY_c09",
+  "base_instance": "Scholl_BUXEY",
+  "source": "Scholl",
+  "n_tasks": 29,
+  "T": 60.0,
+  "config": {
+    "config_name": "c09",
+    "config_id": 9,
+    "alpha_ci": 2.0961,
+    "beta_su": 0.8926,
+    "gamma_setup": 0.9936,
+    "sigma_si": 1.0926,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 9042
+  },
+  "status": "OK",
+  "n_pareto": 9,
+  "n_certified": 1,
+  "total_cpu_s": 4540.29,
+  "gap_mean_pct": 76.4215,
+  "gap_max_pct": 93.1278,
+  "timestamp": "2026-04-23T00:59:45.607381",
+  "indicators": {
+    "PF_size": 9,
+    "HV_abs": 20844.84,
+    "HV_norm": 0.612265,
+    "ref_cost": 264.0,
+    "ref_energy": 218.24,
+    "ideal_cost": 108.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 240.0,
+    "nadir_energy": 198.4,
+    "spacing": 23.709505,
+    "spread_delta": 0.408611,
+    "max_spread": 238.299308,
+    "cost_range": 132.0,
+    "energy_range": 198.4
+  }
+}

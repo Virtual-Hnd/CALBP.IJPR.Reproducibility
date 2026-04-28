@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_ARC83_c08",
+  "base_instance": "Scholl_ARC83",
+  "source": "Scholl",
+  "n_tasks": 83,
+  "T": 6000.0,
+  "config": {
+    "config_name": "c08",
+    "config_id": 8,
+    "alpha_ci": 2.3614,
+    "beta_su": 0.5973,
+    "gamma_setup": 0.9424,
+    "sigma_si": 1.2626,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 8042
+  },
+  "status": "OK",
+  "n_pareto": 1,
+  "n_certified": 1,
+  "total_cpu_s": 773.21,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-23T16:24:58.559152",
+  "indicators": {
+    "PF_size": 1,
+    "HV_abs": 78.4,
+    "HV_norm": 1.0,
+    "ref_cost": 308.0,
+    "ref_energy": 2.8,
+    "ideal_cost": 280.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 280.0,
+    "nadir_energy": 0.0,
+    "spacing": 0.0,
+    "spread_delta": 1.0,
+    "max_spread": 0.0,
+    "cost_range": 0.0,
+    "energy_range": 0.0
+  }
+}
