@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_JAESCHKE_c18",
+  "base_instance": "Scholl_JAESCHKE",
+  "source": "Scholl",
+  "n_tasks": 9,
+  "T": 30.0,
+  "config": {
+    "config_name": "c18",
+    "config_id": 18,
+    "alpha_ci": 1.5797,
+    "beta_su": 0.9217,
+    "gamma_setup": 1.0944,
+    "sigma_si": 1.1767,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 18042
+  },
+  "status": "OK",
+  "n_pareto": 3,
+  "n_certified": 3,
+  "total_cpu_s": 0.41,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-22T18:34:03.810501",
+  "indicators": {
+    "PF_size": 3,
+    "HV_abs": 858.34,
+    "HV_norm": 0.571069,
+    "ref_cost": 88.0,
+    "ref_energy": 24.64,
+    "ideal_cost": 27.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 80.0,
+    "nadir_energy": 22.4,
+    "spacing": 2.078461,
+    "spread_delta": 0.05502,
+    "max_spread": 57.539204,
+    "cost_range": 53.0,
+    "energy_range": 22.4
+  }
+}

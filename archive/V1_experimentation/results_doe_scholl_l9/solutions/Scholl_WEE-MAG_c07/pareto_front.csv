@@ -1,0 +1,4 @@
+point_idx,cost,energy,stations,workers,cobots,certified,lb,ub,mip_gap_pct,n_nodes,cpu_s,energy_tasks,energy_idle,cobot_util,HI,CI,SEH,SEC,SU,SIH,SIC
+0,120.0,0.0,3,3,0,True,120.0,120.0,0.0,0,0.49,0.0,0.0,,75,0,0,0,0,0,0
+1,85.0,86.0,2,2,1,False,9.9358439812,86.0,88.4467,2617,311.04,77.0,9.0,0.7,34,0,0,0,41,0,0
+2,54.0,233.75,2,1,2,False,30.65,233.75,86.8877,3507,311.12,226.0,7.75,0.8708,0,13,0,0,62,0,0

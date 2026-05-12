@@ -3,17 +3,23 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
+source "$ROOT/scripts/_common.sh"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8050}"
-RESULTS_DIR="${RESULTS_DIR:-$ROOT/results_doe_scholl_l36}"
+DOE_DESIGN="${DOE_DESIGN:-l9}"
+DOE_FACTOR_GRANULARITY="${DOE_FACTOR_GRANULARITY:-task}"
+RESULTS_DIR="${RESULTS_DIR:-$ROOT/results_doe_${DOE_DESIGN}_${DOE_FACTOR_GRANULARITY}}"
 LOG_FILE="$ROOT/logs/dashboard.log"
 SESSION_NAME="amine-dashboard"
 
 mkdir -p "$ROOT/logs" "$ROOT/run_control"
 
-if [ ! -x "$PYTHON_BIN" ]; then
-  echo "Python executable not found: $PYTHON_BIN"
+if ! PYTHON_BIN="$(resolve_python_bin)"; then
+  echo "Python executable not found. Set PYTHON_BIN or install python3 / .venv."
+  exit 1
+fi
+
+if ! require_screen; then
   exit 1
 fi
 

@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_JAESCHKE_c35",
+  "base_instance": "Scholl_JAESCHKE",
+  "source": "Scholl",
+  "n_tasks": 9,
+  "T": 30.0,
+  "config": {
+    "config_name": "c35",
+    "config_id": 35,
+    "alpha_ci": 1.9472,
+    "beta_su": 0.6155,
+    "gamma_setup": 1.0562,
+    "sigma_si": 1.2066,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 35042
+  },
+  "status": "OK",
+  "n_pareto": 4,
+  "n_certified": 4,
+  "total_cpu_s": 0.46,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-22T18:34:11.468976",
+  "indicators": {
+    "PF_size": 4,
+    "HV_abs": 1004.58,
+    "HV_norm": 0.603685,
+    "ref_cost": 88.0,
+    "ref_energy": 27.28,
+    "ideal_cost": 27.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 80.0,
+    "nadir_energy": 24.8,
+    "spacing": 16.096998,
+    "spread_delta": 0.493563,
+    "max_spread": 58.515297,
+    "cost_range": 53.0,
+    "energy_range": 24.8
+  }
+}

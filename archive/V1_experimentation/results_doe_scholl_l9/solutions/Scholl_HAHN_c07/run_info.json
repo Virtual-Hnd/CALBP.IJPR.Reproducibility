@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_HAHN_c07",
+  "base_instance": "Scholl_HAHN",
+  "source": "Scholl",
+  "n_tasks": 53,
+  "T": 10000.0,
+  "config": {
+    "config_name": "c07",
+    "config_id": 7,
+    "alpha_ci": 2.0414,
+    "beta_su": 0.4438,
+    "gamma_setup": 1.0683,
+    "sigma_si": 1.2229,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 7042
+  },
+  "status": "OK",
+  "n_pareto": 3,
+  "n_certified": 3,
+  "total_cpu_s": 42.66,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-23T11:38:02.836653",
+  "indicators": {
+    "PF_size": 3,
+    "HV_abs": 340686.975,
+    "HV_norm": 0.654523,
+    "ref_cost": 88.0,
+    "ref_energy": 8532.975,
+    "ideal_cost": 27.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 80.0,
+    "nadir_energy": 7757.25,
+    "spacing": 3142.777323,
+    "spread_delta": 0.7038,
+    "max_spread": 7757.431054,
+    "cost_range": 53.0,
+    "energy_range": 7757.25
+  }
+}

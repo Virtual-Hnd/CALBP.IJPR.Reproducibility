@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_JAESCHKE_c12",
+  "base_instance": "Scholl_JAESCHKE",
+  "source": "Scholl",
+  "n_tasks": 9,
+  "T": 30.0,
+  "config": {
+    "config_name": "c12",
+    "config_id": 12,
+    "alpha_ci": 1.5761,
+    "beta_su": 0.4488,
+    "gamma_setup": 1.0659,
+    "sigma_si": 1.182,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 12042
+  },
+  "status": "OK",
+  "n_pareto": 4,
+  "n_certified": 4,
+  "total_cpu_s": 0.49,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-22T18:34:01.166748",
+  "indicators": {
+    "PF_size": 4,
+    "HV_abs": 910.14,
+    "HV_norm": 0.605533,
+    "ref_cost": 88.0,
+    "ref_energy": 24.64,
+    "ideal_cost": 27.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 80.0,
+    "nadir_energy": 22.4,
+    "spacing": 14.503067,
+    "spread_delta": 0.463429,
+    "max_spread": 57.539204,
+    "cost_range": 53.0,
+    "energy_range": 22.4
+  }
+}

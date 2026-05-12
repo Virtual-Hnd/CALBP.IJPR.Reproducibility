@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_MANSOOR_c26",
+  "base_instance": "Scholl_MANSOOR",
+  "source": "Scholl",
+  "n_tasks": 11,
+  "T": 600.0,
+  "config": {
+    "config_name": "c26",
+    "config_id": 26,
+    "alpha_ci": 1.8737,
+    "beta_su": 0.9273,
+    "gamma_setup": 0.9795,
+    "sigma_si": 1.1083,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 26042
+  },
+  "status": "OK",
+  "n_pareto": 2,
+  "n_certified": 2,
+  "total_cpu_s": 0.21,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-22T18:34:17.467981",
+  "indicators": {
+    "PF_size": 2,
+    "HV_abs": 798.375,
+    "HV_norm": 0.194805,
+    "ref_cost": 44.0,
+    "ref_energy": 117.095,
+    "ideal_cost": 9.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 40.0,
+    "nadir_energy": 106.45,
+    "spacing": 0.0,
+    "spread_delta": 0.0,
+    "max_spread": 110.87201,
+    "cost_range": 31.0,
+    "energy_range": 106.45
+  }
+}

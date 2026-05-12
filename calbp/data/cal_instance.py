@@ -31,6 +31,18 @@ class CALInstance:
     beta_su: float = 0.0
     gamma_setup: float = 0.0
     sigma_si: float = 0.0
+    alpha_ci_std: float = 0.0
+    beta_su_std: float = 0.0
+    gamma_setup_std: float = 0.0
+    sigma_si_std: float = 0.0
+    alpha_level: str = ""
+    beta_level: str = ""
+    gamma_level: str = ""
+    sigma_level: str = ""
+    R_e_level: str = ""
+    C_c_level: str = ""
+    factor_granularity: str = "instance"
+    task_parameters: dict[str, list[float]] = field(default_factory=dict)
     seed: int = 0
 
     def n_tasks(self) -> int:

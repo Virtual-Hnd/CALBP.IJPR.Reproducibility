@@ -4,10 +4,10 @@ __pycache__/
 .venv-py39-backup/
 .DS_Store
 *.log
-results_doe_L9/
-results_doe_scholl_l9/
-results_doe_scholl_l36/
-results_doe_otto_l9/
-results_doe_otto_l36/
+logs/
+results_doe_*/
+results_doe_*/
 run_control/
-archive/
+archive/*
+!archive/V1_experimentation/
+!archive/V1_experimentation/**

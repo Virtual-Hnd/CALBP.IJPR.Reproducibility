@@ -3,6 +3,14 @@
 This directory contains Git-tracked snapshots of benchmark outputs that were
 copied from the live working result folders.
 
+To publish a new snapshot from a live results directory:
+
+```bash
+RESULTS_DIR=/path/to/results_doe_l9_task \
+SNAPSHOT_LABEL=my_campaign \
+./scripts/export_results_snapshot.sh
+```
+
 Snapshots currently published:
 
 - `scholl_l9_final_2026-04-28_09-54-03`

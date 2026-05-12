@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_MITCHELL_c07",
+  "base_instance": "Scholl_MITCHELL",
+  "source": "Scholl",
+  "n_tasks": 21,
+  "T": 60.0,
+  "config": {
+    "config_name": "c07",
+    "config_id": 7,
+    "alpha_ci": 2.0414,
+    "beta_su": 0.4438,
+    "gamma_setup": 1.0683,
+    "sigma_si": 1.2229,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 7042
+  },
+  "status": "OK",
+  "n_pareto": 3,
+  "n_certified": 3,
+  "total_cpu_s": 5.92,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-22T18:38:34.754321",
+  "indicators": {
+    "PF_size": 3,
+    "HV_abs": 2705.39,
+    "HV_norm": 0.66196,
+    "ref_cost": 88.0,
+    "ref_energy": 78.595,
+    "ideal_cost": 36.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 80.0,
+    "nadir_energy": 71.45,
+    "spacing": 1.876388,
+    "spread_delta": 0.111718,
+    "max_spread": 83.911278,
+    "cost_range": 44.0,
+    "energy_range": 71.45
+  }
+}

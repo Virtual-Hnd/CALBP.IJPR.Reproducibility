@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_MERTENS_c36",
+  "base_instance": "Scholl_MERTENS",
+  "source": "Scholl",
+  "n_tasks": 7,
+  "T": 60.0,
+  "config": {
+    "config_name": "c36",
+    "config_id": 36,
+    "alpha_ci": 2.3652,
+    "beta_su": 0.8329,
+    "gamma_setup": 0.9469,
+    "sigma_si": 1.2972,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 36042
+  },
+  "status": "OK",
+  "n_pareto": 2,
+  "n_certified": 2,
+  "total_cpu_s": 0.08,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-22T18:33:55.320908",
+  "indicators": {
+    "PF_size": 2,
+    "HV_abs": 154.44,
+    "HV_norm": 0.230769,
+    "ref_cost": 44.0,
+    "ref_energy": 25.74,
+    "ideal_cost": 18.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 40.0,
+    "nadir_energy": 23.4,
+    "spacing": 0.0,
+    "spread_delta": 0.0,
+    "max_spread": 32.117908,
+    "cost_range": 22.0,
+    "energy_range": 23.4
+  }
+}

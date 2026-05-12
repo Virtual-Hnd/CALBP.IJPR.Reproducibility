@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_JAESCHKE_c09",
+  "base_instance": "Scholl_JAESCHKE",
+  "source": "Scholl",
+  "n_tasks": 9,
+  "T": 30.0,
+  "config": {
+    "config_name": "c09",
+    "config_id": 9,
+    "alpha_ci": 2.0961,
+    "beta_su": 0.8926,
+    "gamma_setup": 0.9936,
+    "sigma_si": 1.0926,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 9042
+  },
+  "status": "OK",
+  "n_pareto": 3,
+  "n_certified": 3,
+  "total_cpu_s": 0.39,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-22T18:14:26.742025",
+  "indicators": {
+    "PF_size": 3,
+    "HV_abs": 969.685,
+    "HV_norm": 0.570073,
+    "ref_cost": 88.0,
+    "ref_energy": 27.885,
+    "ideal_cost": 27.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 80.0,
+    "nadir_energy": 25.35,
+    "spacing": 2.973354,
+    "spread_delta": 0.031723,
+    "max_spread": 58.750511,
+    "cost_range": 53.0,
+    "energy_range": 25.35
+  }
+}

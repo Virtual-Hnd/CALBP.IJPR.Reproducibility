@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_MANSOOR_c21",
+  "base_instance": "Scholl_MANSOOR",
+  "source": "Scholl",
+  "n_tasks": 11,
+  "T": 600.0,
+  "config": {
+    "config_name": "c21",
+    "config_id": 21,
+    "alpha_ci": 2.2489,
+    "beta_su": 0.3436,
+    "gamma_setup": 1.0891,
+    "sigma_si": 1.048,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 21042
+  },
+  "status": "OK",
+  "n_pareto": 2,
+  "n_certified": 2,
+  "total_cpu_s": 0.25,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-22T18:34:16.383639",
+  "indicators": {
+    "PF_size": 2,
+    "HV_abs": 922.5,
+    "HV_norm": 0.194805,
+    "ref_cost": 44.0,
+    "ref_energy": 135.3,
+    "ideal_cost": 9.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 40.0,
+    "nadir_energy": 123.0,
+    "spacing": 0.0,
+    "spread_delta": 0.0,
+    "max_spread": 126.846364,
+    "cost_range": 31.0,
+    "energy_range": 123.0
+  }
+}

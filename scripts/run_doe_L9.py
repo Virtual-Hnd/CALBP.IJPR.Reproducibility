@@ -24,6 +24,7 @@ Usage:
     python scripts/run_doe_L9.py --instances Scholl_BOWMAN8 instance_n=20_1
     python scripts/run_doe_L9.py --resume               # skip completed runs
     python scripts/run_doe_L9.py --time-limit 600       # 600 s per ε-step
+    python scripts/run_doe_L9.py --factor-granularity task
 """
 
 import argparse
@@ -52,8 +53,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from calbp.doe.taguchi import L9_MATRIX, PILOT_FACTORS, L36_MATRIX, L36_FACTORS
 from calbp.doe.scenario import build_scenarios, Scenario, write_manifest
+from calbp.data.cal_instance import CALInstance
 from calbp.generation.instance_builder import build_cal_instance
-from calbp.data.instance_io import write_txt, read_txt
+from calbp.data.instance_io import write_json, write_txt, read_txt
 from calbp.data.scholl_parser import SchollInstance
 from calbp.constants import ALL_MODE_NAMES, MODE_IDS
 from calbp.analysis.indicators import compute_all_indicators
@@ -199,7 +201,8 @@ def generate_instance(
     T_base: float,
     scenario: Scenario,
     output_path: Path,
-) -> Path:
+    factor_granularity: str = "task",
+) -> CALInstance:
     """Generate a DOE-parametrised CAL instance and write it to disk."""
     inst = build_cal_instance(
         base=base,
@@ -214,6 +217,13 @@ def generate_instance(
         C_s=4.0,
         C_w=36.0,
         C_c=scenario.C_c,
+        factor_granularity=factor_granularity,
+        alpha_level=scenario.alpha_level,
+        beta_level=scenario.beta_level,
+        gamma_level=scenario.gamma_level,
+        sigma_level=scenario.sigma_level,
+        R_e_level=scenario.R_e_level,
+        C_c_level=scenario.C_c_level,
     )
 
     # Ensure T covers all mode times
@@ -224,7 +234,8 @@ def generate_instance(
         inst.T = float(max_time) * 1.05
 
     write_txt(inst, output_path)
-    return output_path
+    write_json(inst, output_path.with_suffix(".json"))
+    return inst
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -304,6 +315,7 @@ def save_run_info(
     n_tasks: int,
     T: float,
     scenario: Scenario,
+    inst: CALInstance,
     pareto_points: list[dict],
     total_cpu: float,
     status: str,
@@ -325,17 +337,28 @@ def save_run_info(
         "base_instance": base_name,
         "source": source,
         "n_tasks": n_tasks,
-        "T": T,
+        "T": inst.T,
         "config": {
             "config_name": scenario.config_name,
             "config_id": scenario.config_id,
-            "alpha_ci": scenario.alpha_ci,
-            "beta_su": scenario.beta_su,
-            "gamma_setup": scenario.gamma_setup,
-            "sigma_si": scenario.sigma_si,
-            "R_e": scenario.R_e,
-            "C_c": scenario.C_c,
-            "seed": scenario.seed,
+            "alpha_level": inst.alpha_level,
+            "beta_level": inst.beta_level,
+            "gamma_level": inst.gamma_level,
+            "sigma_level": inst.sigma_level,
+            "R_e_level": inst.R_e_level,
+            "C_c_level": inst.C_c_level,
+            "alpha_ci": inst.alpha_ci,
+            "beta_su": inst.beta_su,
+            "gamma_setup": inst.gamma_setup,
+            "sigma_si": inst.sigma_si,
+            "alpha_ci_std": inst.alpha_ci_std,
+            "beta_su_std": inst.beta_su_std,
+            "gamma_setup_std": inst.gamma_setup_std,
+            "sigma_si_std": inst.sigma_si_std,
+            "R_e": inst.R_e,
+            "C_c": inst.C_c,
+            "factor_granularity": inst.factor_granularity,
+            "seed": inst.seed,
         },
         "status": status,
         "n_pareto": len(pareto_points),
@@ -368,10 +391,13 @@ MASTER_FIELDS = [
     # Identification
     "run_name", "base_instance", "source", "n_tasks",
     "config_name", "config_id",
+    "alpha_level", "beta_level", "gamma_level", "sigma_level",
+    "R_e_level", "C_c_level",
     # DOE factors
     "alpha_ci", "beta_su", "gamma_setup", "sigma_si",
+    "alpha_ci_std", "beta_su_std", "gamma_setup_std", "sigma_si_std",
     # Fixed params (recorded for traceability)
-    "R_e", "C_c", "T", "seed",
+    "R_e", "C_c", "T", "factor_granularity", "seed",
     # Result summary
     "status", "n_pareto", "n_certified", "total_cpu_s",
     # Pareto range
@@ -395,11 +421,34 @@ def build_master_row(
     n_tasks: int,
     T: float,
     scenario: Scenario,
+    inst: CALInstance | None,
     pareto_points: list[dict],
     total_cpu: float,
     status: str,
+    factor_granularity: str = "instance",
 ) -> dict:
     """Build one row for the master results CSV."""
+    alpha_level = inst.alpha_level if inst else scenario.alpha_level
+    beta_level = inst.beta_level if inst else scenario.beta_level
+    gamma_level = inst.gamma_level if inst else scenario.gamma_level
+    sigma_level = inst.sigma_level if inst else scenario.sigma_level
+    r_e_level = inst.R_e_level if inst else scenario.R_e_level
+    c_c_level = inst.C_c_level if inst else scenario.C_c_level
+    alpha_ci = inst.alpha_ci if inst else scenario.alpha_ci
+    beta_su = inst.beta_su if inst else scenario.beta_su
+    gamma_setup = inst.gamma_setup if inst else scenario.gamma_setup
+    sigma_si = inst.sigma_si if inst else scenario.sigma_si
+    alpha_ci_std = inst.alpha_ci_std if inst else 0.0
+    beta_su_std = inst.beta_su_std if inst else 0.0
+    gamma_setup_std = inst.gamma_setup_std if inst else 0.0
+    sigma_si_std = inst.sigma_si_std if inst else 0.0
+    R_e = inst.R_e if inst else scenario.R_e
+    C_c = inst.C_c if inst else scenario.C_c
+    seed = inst.seed if inst else scenario.seed
+    granularity = inst.factor_granularity if inst else factor_granularity
+
+    effective_T = inst.T if inst else T
+
     row = {
         "run_name": run_name,
         "base_instance": base_name,
@@ -407,14 +456,25 @@ def build_master_row(
         "n_tasks": n_tasks,
         "config_name": scenario.config_name,
         "config_id": scenario.config_id,
-        "alpha_ci": scenario.alpha_ci,
-        "beta_su": scenario.beta_su,
-        "gamma_setup": scenario.gamma_setup,
-        "sigma_si": scenario.sigma_si,
-        "R_e": scenario.R_e,
-        "C_c": scenario.C_c,
-        "T": T,
-        "seed": scenario.seed,
+        "alpha_level": alpha_level,
+        "beta_level": beta_level,
+        "gamma_level": gamma_level,
+        "sigma_level": sigma_level,
+        "R_e_level": r_e_level,
+        "C_c_level": c_c_level,
+        "alpha_ci": alpha_ci,
+        "beta_su": beta_su,
+        "gamma_setup": gamma_setup,
+        "sigma_si": sigma_si,
+        "alpha_ci_std": alpha_ci_std,
+        "beta_su_std": beta_su_std,
+        "gamma_setup_std": gamma_setup_std,
+        "sigma_si_std": sigma_si_std,
+        "R_e": R_e,
+        "C_c": C_c,
+        "T": effective_T,
+        "factor_granularity": granularity,
+        "seed": seed,
         "status": status,
         "n_pareto": len(pareto_points),
         "total_cpu_s": round(total_cpu, 2),
@@ -497,9 +557,11 @@ def run_doe(args):
     if args.fixed_r_e is not None:
         for sc in scenarios:
             sc.R_e = round(args.fixed_r_e, 4)
+            sc.R_e_level = "fixed"
     if args.fixed_c_c is not None:
         for sc in scenarios:
             sc.C_c = round(args.fixed_c_c, 2)
+            sc.C_c_level = "fixed"
     print(f"[DOE] {len(scenarios)} configs from {design_label} × {factor_label}")
     if args.fixed_r_e is not None or args.fixed_c_c is not None:
         print(
@@ -543,6 +605,7 @@ def run_doe(args):
     print(f"[DOE] Instances: {n_scholl} Scholl + {n_otto} Otto = {len(all_instances)}")
     print(f"[DOE] Total runs: {len(scenarios)} × {len(all_instances)} = {total_runs}")
     print(f"[DOE] Time limit: {args.time_limit}s per ε-step")
+    print(f"[DOE] Factor granularity: {args.factor_granularity}")
     print(f"[DOE] Results → {results_dir}")
 
     # ── 3. Prepare output dirs ────────────────────────────────────
@@ -551,7 +614,12 @@ def run_doe(args):
 
     # Write manifest
     inst_names = [n for n, _, _ in all_instances]
-    write_manifest(scenarios, inst_names, results_dir / "doe_manifest.csv")
+    write_manifest(
+        scenarios,
+        inst_names,
+        results_dir / "doe_manifest.csv",
+        factor_granularity=args.factor_granularity,
+    )
 
     # ── 4. Solve loop ────────────────────────────────────────────
     #    Order: all Scholl × all configs, then all Otto × all configs.
@@ -597,8 +665,8 @@ def run_doe(args):
             print(
                 f"\n[{done}/{total_runs}] {run_name}  "
                 f"({source}, instance={inst_name})  "
-                f"α={sc.alpha_ci:.2f} β={sc.beta_su:.2f} "
-                f"γ={sc.gamma_setup:.2f} σ={sc.sigma_si:.2f}"
+                f"α={sc.alpha_level} β={sc.beta_level} "
+                f"γ={sc.gamma_level} σ={sc.sigma_level}"
             )
 
             # ── 4a. Load base instance ────────────────────────────
@@ -608,7 +676,7 @@ def run_doe(args):
                 print(f"    ERROR loading base: {e}")
                 row = build_master_row(
                     run_name, inst_name, source, 0, 0,
-                    sc, [], 0, "LOAD_ERROR",
+                    sc, None, [], 0, "LOAD_ERROR", args.factor_granularity,
                 )
                 all_rows.append(row)
                 continue
@@ -618,12 +686,18 @@ def run_doe(args):
             inst_path = sol_dir / "instance.txt"
 
             try:
-                generate_instance(base, T_base, sc, inst_path)
+                inst = generate_instance(
+                    base,
+                    T_base,
+                    sc,
+                    inst_path,
+                    factor_granularity=args.factor_granularity,
+                )
             except Exception as e:
                 print(f"    ERROR generating instance: {e}")
                 row = build_master_row(
                     run_name, inst_name, source, base.n_tasks, T_base,
-                    sc, [], 0, "GEN_ERROR",
+                    sc, None, [], 0, "GEN_ERROR", args.factor_granularity,
                 )
                 all_rows.append(row)
                 continue
@@ -659,7 +733,7 @@ def run_doe(args):
             save_assignments_json(pareto_points, sol_dir / "assignments.json")
             save_run_info(
                 run_name, inst_name, source, base.n_tasks, T_base,
-                sc, pareto_points, total_cpu, status,
+                sc, inst, pareto_points, total_cpu, status,
                 sol_dir / "run_info.json",
                 error_message=_err_msg if status == "ERROR" else None,
             )
@@ -667,7 +741,7 @@ def run_doe(args):
             # ── 4e. Build master row ──────────────────────────────
             row = build_master_row(
                 run_name, inst_name, source, base.n_tasks, T_base,
-                sc, pareto_points, total_cpu, status,
+                sc, inst, pareto_points, total_cpu, status,
             )
             all_rows.append(row)
 
@@ -762,6 +836,15 @@ def main():
     parser.add_argument(
         "--time-limit", type=int, default=300,
         help="CPLEX time limit per ε-step in seconds (default: 300)",
+    )
+    parser.add_argument(
+        "--factor-granularity",
+        choices=("instance", "task"),
+        default=os.environ.get("DOE_FACTOR_GRANULARITY", "task").lower(),
+        help=(
+            "Apply DOE factors once per instance or heterogeneously per task. "
+            "'task' is the recommended mode; 'instance' reproduces the legacy DOE."
+        ),
     )
     parser.add_argument(
         "--configs", nargs="+", default=None,

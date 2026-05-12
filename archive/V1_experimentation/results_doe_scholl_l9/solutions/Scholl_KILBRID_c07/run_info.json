@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_KILBRID_c07",
+  "base_instance": "Scholl_KILBRID",
+  "source": "Scholl",
+  "n_tasks": 45,
+  "T": 600.0,
+  "config": {
+    "config_name": "c07",
+    "config_id": 7,
+    "alpha_ci": 2.0414,
+    "beta_su": 0.4438,
+    "gamma_setup": 1.0683,
+    "sigma_si": 1.2229,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 7042
+  },
+  "status": "OK",
+  "n_pareto": 2,
+  "n_certified": 2,
+  "total_cpu_s": 9.29,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-23T11:14:54.126556",
+  "indicators": {
+    "PF_size": 2,
+    "HV_abs": 2146.98,
+    "HV_norm": 0.230769,
+    "ref_cost": 44.0,
+    "ref_energy": 357.83,
+    "ideal_cost": 18.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 40.0,
+    "nadir_energy": 325.3,
+    "spacing": 0.0,
+    "spread_delta": 0.0,
+    "max_spread": 326.04308,
+    "cost_range": 22.0,
+    "energy_range": 325.3
+  }
+}

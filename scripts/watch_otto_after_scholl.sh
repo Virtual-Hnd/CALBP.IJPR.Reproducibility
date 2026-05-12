@@ -3,7 +3,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
+source "$ROOT/scripts/_common.sh"
 SCHOLL_RESULTS_DIR="${SCHOLL_RESULTS_DIR:-$ROOT/results_doe_scholl_l9}"
 OTTO_RESULTS_DIR="${OTTO_RESULTS_DIR:-$ROOT/results_doe_otto_l9}"
 DOE_DESIGN="${DOE_DESIGN:-l9}"
@@ -16,8 +16,8 @@ HEARTBEAT_FILE="$ROOT/run_control/otto_after_scholl.heartbeat"
 
 mkdir -p "$ROOT/logs" "$ROOT/run_control"
 
-if [ ! -x "$PYTHON_BIN" ]; then
-  echo "[chain] Python executable not found: $PYTHON_BIN"
+if ! PYTHON_BIN="$(resolve_python_bin)"; then
+  echo "[chain] Python executable not found. Set PYTHON_BIN or install python3 / .venv."
   exit 1
 fi
 

@@ -3,6 +3,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/_common.sh"
 STOP_FILE="$ROOT/run_control/STOP_OTTO_WATCHDOG"
 LOG_FILE="$ROOT/logs/otto_watchdog.log"
 WATCHDOG="$ROOT/scripts/watch_otto_campaign.sh"
@@ -10,6 +11,10 @@ SESSION_NAME="amine-otto"
 
 mkdir -p "$ROOT/logs" "$ROOT/run_control"
 rm -f "$STOP_FILE"
+
+if ! require_screen; then
+  exit 1
+fi
 
 if screen -list | grep -q "[.]$SESSION_NAME[[:space:]]"; then
   echo "Otto watchdog already running (screen session: $SESSION_NAME)"

@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_WEE-MAG_c08",
+  "base_instance": "Scholl_WEE-MAG",
+  "source": "Scholl",
+  "n_tasks": 75,
+  "T": 600.0,
+  "config": {
+    "config_name": "c08",
+    "config_id": 8,
+    "alpha_ci": 2.3614,
+    "beta_su": 0.5973,
+    "gamma_setup": 0.9424,
+    "sigma_si": 1.2626,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 8042
+  },
+  "status": "OK",
+  "n_pareto": 4,
+  "n_certified": 1,
+  "total_cpu_s": 1582.99,
+  "gap_mean_pct": 72.5844,
+  "gap_max_pct": 99.987,
+  "timestamp": "2026-04-23T14:16:11.245842",
+  "indicators": {
+    "PF_size": 4,
+    "HV_abs": 56712.76,
+    "HV_norm": 0.750657,
+    "ref_cost": 132.0,
+    "ref_energy": 1094.94,
+    "ideal_cost": 63.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 120.0,
+    "nadir_energy": 995.4,
+    "spacing": 191.690219,
+    "spread_delta": 0.437977,
+    "max_spread": 997.030672,
+    "cost_range": 57.0,
+    "energy_range": 995.4
+  }
+}

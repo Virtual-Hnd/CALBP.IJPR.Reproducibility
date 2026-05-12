@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_MITCHELL_c06",
+  "base_instance": "Scholl_MITCHELL",
+  "source": "Scholl",
+  "n_tasks": 21,
+  "T": 60.0,
+  "config": {
+    "config_name": "c06",
+    "config_id": 6,
+    "alpha_ci": 0.8927,
+    "beta_su": 0.683,
+    "gamma_setup": 1.0787,
+    "sigma_si": 1.3674,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 6042
+  },
+  "status": "OK",
+  "n_pareto": 3,
+  "n_certified": 3,
+  "total_cpu_s": 3.93,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-22T18:34:52.465996",
+  "indicators": {
+    "PF_size": 3,
+    "HV_abs": 1252.1,
+    "HV_norm": 0.430186,
+    "ref_cost": 88.0,
+    "ref_energy": 41.58,
+    "ideal_cost": 18.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 80.0,
+    "nadir_energy": 37.8,
+    "spacing": 3.695042,
+    "spread_delta": 0.045621,
+    "max_spread": 72.614324,
+    "cost_range": 62.0,
+    "energy_range": 37.8
+  }
+}

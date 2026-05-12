@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_SAWYER30_c06",
+  "base_instance": "Scholl_SAWYER30",
+  "source": "Scholl",
+  "n_tasks": 30,
+  "T": 200.0,
+  "config": {
+    "config_name": "c06",
+    "config_id": 6,
+    "alpha_ci": 1.2683,
+    "beta_su": 0.933,
+    "gamma_setup": 0.9073,
+    "sigma_si": 1.188,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 6042
+  },
+  "status": "OK",
+  "n_pareto": 3,
+  "n_certified": 2,
+  "total_cpu_s": 407.42,
+  "gap_mean_pct": 21.6807,
+  "gap_max_pct": 65.042,
+  "timestamp": "2026-04-23T01:38:31.527959",
+  "indicators": {
+    "PF_size": 3,
+    "HV_abs": 4491.125,
+    "HV_norm": 0.508021,
+    "ref_cost": 88.0,
+    "ref_energy": 144.925,
+    "ideal_cost": 27.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 80.0,
+    "nadir_energy": 131.75,
+    "spacing": 16.82976,
+    "spread_delta": 0.21973,
+    "max_spread": 142.010783,
+    "cost_range": 53.0,
+    "energy_range": 131.75
+  }
+}

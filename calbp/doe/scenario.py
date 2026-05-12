@@ -20,6 +20,12 @@ class Scenario:
     sigma_si: float
     R_e: float
     C_c: float               # cobot hourly cost (€/h)
+    alpha_level: str
+    beta_level: str
+    gamma_level: str
+    sigma_level: str
+    R_e_level: str
+    C_c_level: str
     seed: int
     subscenario: str = "normal_equilibre"
 
@@ -72,18 +78,22 @@ def build_scenarios(
     """
     factor_keys = sorted(factors.keys())  # A, B, C, D, E, F...
     scenarios = []
+    level_labels = {0: "low", 1: "mid", 2: "high"}
 
     for cfg_idx, row in enumerate(oa_matrix, start=1):
         rng = np.random.default_rng(seed_base + cfg_idx * 1000)
         cfg_name = f"c{cfg_idx:02d}"
 
         params: dict[str, float] = {}
+        level_by_name: dict[str, str] = {}
         for col, key in enumerate(factor_keys):
             level_idx = row[col]
             spec = factors[key]["levels"][level_idx]
-            params[factors[key]["name"]] = _resolve_level_with_rng(
+            factor_name = factors[key]["name"]
+            params[factor_name] = _resolve_level_with_rng(
                 spec, level_strategy, rng
             )
+            level_by_name[factor_name] = level_labels[level_idx]
 
         # Extract R_e and C_c (may or may not be DOE factors)
         R_e = params.pop("R_e", default_R_e)
@@ -98,6 +108,12 @@ def build_scenarios(
             sigma_si=round(params.get("sigma_si", 0.15), 4),
             R_e=round(R_e, 4),
             C_c=round(C_c, 2),
+            alpha_level=level_by_name.get("alpha_ci", "fixed"),
+            beta_level=level_by_name.get("beta_su", "fixed"),
+            gamma_level=level_by_name.get("gamma_setup", "fixed"),
+            sigma_level=level_by_name.get("sigma_si", "fixed"),
+            R_e_level=level_by_name.get("R_e", "fixed"),
+            C_c_level=level_by_name.get("C_c", "fixed"),
             seed=seed_base + cfg_idx * 1000,
         ))
 
@@ -188,6 +204,7 @@ def write_manifest(
     scenarios: list[Scenario],
     base_instances: list[str],
     path: Path | str,
+    factor_granularity: str = "task",
 ) -> None:
     """Write a CSV manifest of all (scenario × instance) combinations."""
     path = Path(path)
@@ -195,7 +212,11 @@ def write_manifest(
 
     fieldnames = [
         "instance_name", "base_instance", "config_name", "config_id",
-        "subscenario", "alpha_ci", "beta_su", "gamma_setup", "sigma_si", "R_e", "C_c", "seed",
+        "subscenario",
+        "alpha_level", "beta_level", "gamma_level", "sigma_level",
+        "R_e_level", "C_c_level",
+        "R_e", "C_c",
+        "factor_granularity", "seed",
     ]
 
     with open(path, "w", newline="", encoding="utf-8") as f:
@@ -203,7 +224,12 @@ def write_manifest(
         writer.writeheader()
         for sc in scenarios:
             for base_name in base_instances:
-                row = sc.as_dict()
+                row = {
+                    key: value
+                    for key, value in sc.as_dict().items()
+                    if key in fieldnames
+                }
                 row["base_instance"] = base_name
                 row["instance_name"] = f"{base_name}_{sc.config_name}"
+                row["factor_granularity"] = factor_granularity
                 writer.writerow(row)

@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_LUTZ2_c08",
+  "base_instance": "Scholl_LUTZ2",
+  "source": "Scholl",
+  "n_tasks": 89,
+  "T": 600.0,
+  "config": {
+    "config_name": "c08",
+    "config_id": 8,
+    "alpha_ci": 2.3614,
+    "beta_su": 0.5973,
+    "gamma_setup": 0.9424,
+    "sigma_si": 1.2626,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 8042
+  },
+  "status": "OK",
+  "n_pareto": 2,
+  "n_certified": 2,
+  "total_cpu_s": 67.87,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-23T16:46:01.986480",
+  "indicators": {
+    "PF_size": 2,
+    "HV_abs": 2306.37,
+    "HV_norm": 0.230769,
+    "ref_cost": 44.0,
+    "ref_energy": 384.395,
+    "ideal_cost": 18.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 40.0,
+    "nadir_energy": 349.45,
+    "spacing": 0.0,
+    "spread_delta": 0.0,
+    "max_spread": 350.141832,
+    "cost_range": 22.0,
+    "energy_range": 349.45
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_MERTENS_c21",
+  "base_instance": "Scholl_MERTENS",
+  "source": "Scholl",
+  "n_tasks": 7,
+  "T": 60.0,
+  "config": {
+    "config_name": "c21",
+    "config_id": 21,
+    "alpha_ci": 2.2489,
+    "beta_su": 0.3436,
+    "gamma_setup": 1.0891,
+    "sigma_si": 1.048,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 21042
+  },
+  "status": "OK",
+  "n_pareto": 2,
+  "n_certified": 2,
+  "total_cpu_s": 0.09,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-22T18:33:54.054225",
+  "indicators": {
+    "PF_size": 2,
+    "HV_abs": 148.83,
+    "HV_norm": 0.230769,
+    "ref_cost": 44.0,
+    "ref_energy": 24.805,
+    "ideal_cost": 18.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 40.0,
+    "nadir_energy": 22.55,
+    "spacing": 0.0,
+    "spread_delta": 0.0,
+    "max_spread": 31.504008,
+    "cost_range": 22.0,
+    "energy_range": 22.55
+  }
+}

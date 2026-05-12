@@ -3,9 +3,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
-CPLEX_BIN_DEFAULT="/Users/admin/Applications/CPLEX_Studio2212/cplex/bin/arm64_osx/cplex"
-CPLEX_CMD="${CPLEX_CMD:-$CPLEX_BIN_DEFAULT}"
+source "$ROOT/scripts/_common.sh"
 DOE_DESIGN="${DOE_DESIGN:-l9}"
 RESULTS_DIR="${RESULTS_DIR:-$ROOT/results_doe_otto_${DOE_DESIGN}}"
 DOE_FIXED_R_E="${DOE_FIXED_R_E:-0.05}"
@@ -33,13 +31,13 @@ INSTANCES=(
 
 mkdir -p "$ROOT/logs" "$ROOT/run_control"
 
-if [ ! -x "$PYTHON_BIN" ]; then
-  echo "[watchdog] Python executable not found: $PYTHON_BIN"
+if ! PYTHON_BIN="$(resolve_python_bin)"; then
+  echo "[watchdog] Python executable not found. Set PYTHON_BIN or install python3 / .venv."
   exit 1
 fi
 
-if [ ! -x "$CPLEX_CMD" ]; then
-  echo "[watchdog] CPLEX executable not found: $CPLEX_CMD"
+if ! CPLEX_CMD="$(resolve_cplex_cmd)"; then
+  echo "[watchdog] CPLEX executable not found. Set CPLEX_CMD, CPLEX_BIN, or CPLEX_STUDIO_DIR."
   exit 1
 fi
 

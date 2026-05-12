@@ -41,12 +41,23 @@ BASE_FIELDS = [
 ]
 
 CONFIG_FIELDS = [
+    "alpha_level",
+    "beta_level",
+    "gamma_level",
+    "sigma_level",
+    "R_e_level",
+    "C_c_level",
     "alpha_ci",
     "beta_su",
     "gamma_setup",
     "sigma_si",
+    "alpha_ci_std",
+    "beta_su_std",
+    "gamma_setup_std",
+    "sigma_si_std",
     "R_e",
     "C_c",
+    "factor_granularity",
     "seed",
 ]
 

@@ -17,19 +17,28 @@ overhead.  For simultaneous mode, σ > 1 represents coordination overhead.
 
 All times are rounded UP to integer (ceil) to avoid sub-unit artifacts.
 
-Design decision: parameters (α, β, γ, σ) are FIXED per instance, not per task.
-This is required for a clean DOE where factor effects are estimable.
+The generator supports two conventions:
+  - scalar factors: one α/β/γ/σ value reused for every task
+  - task profiles: per-task α/β/γ/σ values within the same DOE level
 """
 
 import math
+from collections.abc import Sequence
+
+
+def _value_for_task(param: float | Sequence[float], idx: int) -> float:
+    """Return the scalar factor value to use for task index ``idx``."""
+    if isinstance(param, Sequence) and not isinstance(param, (str, bytes)):
+        return float(param[idx])
+    return float(param)
 
 
 def generate_mode_times(
     task_times_hi: list[int],
-    alpha_ci: float,
-    beta_su: float,
-    gamma_setup: float,
-    sigma_si: float,
+    alpha_ci: float | Sequence[float],
+    beta_su: float | Sequence[float],
+    gamma_setup: float | Sequence[float],
+    sigma_si: float | Sequence[float],
 ) -> dict[tuple[int, str], int]:
     """
     Generate mode-dependent processing times for all tasks.
@@ -38,14 +47,14 @@ def generate_mode_times(
     ----------
     task_times_hi : list[int]
         Human baseline times, 0-indexed (task_times_hi[0] = time of task 1).
-    alpha_ci : float
-        CI / HI speed ratio. α ≥ 1 means cobot is slower.
-    beta_su : float
-        SU / HI ratio. β < 1 means supportive is faster.
-    gamma_setup : float
-        Sequential time ratio.
-    sigma_si : float
-        Simultaneous time ratio.
+    alpha_ci : float or sequence of float
+        CI / HI speed ratio(s). α ≥ 1 means cobot is slower.
+    beta_su : float or sequence of float
+        SU / HI ratio(s). β < 1 means supportive is faster.
+    gamma_setup : float or sequence of float
+        Sequential time ratio(s).
+    sigma_si : float or sequence of float
+        Simultaneous time ratio(s).
 
     Returns
     -------
@@ -56,14 +65,18 @@ def generate_mode_times(
 
     for idx, t_h in enumerate(task_times_hi):
         j = idx + 1  # 1-based task id
+        alpha_j = _value_for_task(alpha_ci, idx)
+        beta_j = _value_for_task(beta_su, idx)
+        gamma_j = _value_for_task(gamma_setup, idx)
+        sigma_j = _value_for_task(sigma_si, idx)
 
         t_hi = t_h
-        t_ci = math.ceil(alpha_ci * t_h)
-        t_su = math.ceil(beta_su * t_h)
-        t_seh = max(1, math.ceil(gamma_setup * t_hi))
-        t_sec = max(1, math.ceil(gamma_setup * t_ci))
-        t_sih = max(1, math.ceil(sigma_si * t_hi))
-        t_sic = max(1, math.ceil(sigma_si * t_ci))
+        t_ci = math.ceil(alpha_j * t_h)
+        t_su = math.ceil(beta_j * t_h)
+        t_seh = max(1, math.ceil(gamma_j * t_hi))
+        t_sec = max(1, math.ceil(gamma_j * t_ci))
+        t_sih = max(1, math.ceil(sigma_j * t_hi))
+        t_sic = max(1, math.ceil(sigma_j * t_ci))
 
         t_jm[(j, "HI")]  = t_hi
         t_jm[(j, "CI")]  = t_ci

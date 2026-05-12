@@ -1,0 +1,41 @@
+{
+  "run_name": "Scholl_MERTENS_c32",
+  "base_instance": "Scholl_MERTENS",
+  "source": "Scholl",
+  "n_tasks": 7,
+  "T": 60.0,
+  "config": {
+    "config_name": "c32",
+    "config_id": 32,
+    "alpha_ci": 1.3917,
+    "beta_su": 0.6921,
+    "gamma_setup": 0.8776,
+    "sigma_si": 1.2018,
+    "R_e": 0.05,
+    "C_c": 5.0,
+    "seed": 32042
+  },
+  "status": "OK",
+  "n_pareto": 2,
+  "n_certified": 2,
+  "total_cpu_s": 0.08,
+  "gap_mean_pct": 0.0,
+  "gap_max_pct": 0.0,
+  "timestamp": "2026-04-22T18:33:54.988919",
+  "indicators": {
+    "PF_size": 2,
+    "HV_abs": 111.375,
+    "HV_norm": 0.194805,
+    "ref_cost": 44.0,
+    "ref_energy": 16.335,
+    "ideal_cost": 9.0,
+    "ideal_energy": 0.0,
+    "nadir_cost": 40.0,
+    "nadir_energy": 14.85,
+    "spacing": 0.0,
+    "spread_delta": 0.0,
+    "max_spread": 34.373282,
+    "cost_range": 31.0,
+    "energy_range": 14.85
+  }
+}
