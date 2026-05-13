@@ -250,7 +250,7 @@ def save_pareto_csv(pareto_points: list[dict], path: Path) -> None:
     fieldnames = [
         "point_idx", "cost", "energy",
         "stations", "workers", "cobots",
-        "certified", "lb", "ub", "mip_gap_pct", "n_nodes", "cpu_s",
+        "certified", "lb", "ub", "mip_gap_pct", "n_nodes", "solver_iterations", "cpu_s",
         "energy_tasks", "energy_idle", "cobot_util",
         "HI", "CI", "SEH", "SEC", "SU", "SIH", "SIC",
     ]
@@ -273,6 +273,7 @@ def save_pareto_csv(pareto_points: list[dict], path: Path) -> None:
                 "ub": p.get("ub"),
                 "mip_gap_pct": p.get("mip_gap"),
                 "n_nodes": p.get("n_nodes"),
+                "solver_iterations": p.get("solver_iterations"),
                 "cpu_s": round(p.get("cpu_point", 0), 2),
                 "energy_tasks": round(p.get("energy_tasks", 0), 2),
                 "energy_idle": round(p.get("energy_idle", 0), 2),
@@ -295,6 +296,12 @@ def save_assignments_json(pareto_points: list[dict], path: Path) -> None:
             "point_idx": i,
             "cost": p["cost"],
             "energy": p["energy"],
+            "stations": p.get("stations"),
+            "workers": p.get("workers"),
+            "cobots": p.get("cobots"),
+            "certified": p.get("certified", False),
+            "cpu_s": p.get("cpu_point"),
+            "solver_iterations": p.get("solver_iterations"),
             "assignments": p.get("assignments", []),
             "station_info": p.get("station_info", []),
             "mode_distrib": p.get("mode_distrib", {}),
@@ -306,6 +313,31 @@ def save_assignments_json(pareto_points: list[dict], path: Path) -> None:
         json.dumps({"points": points_data}, indent=2, default=str),
         encoding="utf-8",
     )
+
+
+def summarize_front(pareto_points: list[dict]) -> dict[str, float | int | None]:
+    """Compute run-level summaries from the per-point Pareto front."""
+    stations = [
+        int(p["stations"])
+        for p in pareto_points
+        if isinstance(p.get("stations"), (int, float))
+    ]
+    solver_iterations = [
+        int(p["solver_iterations"])
+        for p in pareto_points
+        if isinstance(p.get("solver_iterations"), (int, float))
+    ]
+
+    return {
+        "min_stations": min(stations) if stations else None,
+        "max_stations": max(stations) if stations else None,
+        "solver_iterations_total": sum(solver_iterations) if solver_iterations else None,
+        "solver_iterations_mean": (
+            round(sum(solver_iterations) / len(solver_iterations), 2)
+            if solver_iterations else None
+        ),
+        "solver_iterations_max": max(solver_iterations) if solver_iterations else None,
+    }
 
 
 def save_run_info(
@@ -323,6 +355,7 @@ def save_run_info(
     error_message: str | None = None,
 ) -> None:
     """Save run metadata as JSON."""
+    front_stats = summarize_front(pareto_points)
     n_certified = sum(
         1 for p in pareto_points if p.get("certified", False)
     )
@@ -363,6 +396,11 @@ def save_run_info(
         "status": status,
         "n_pareto": len(pareto_points),
         "n_certified": n_certified,
+        "min_stations": front_stats["min_stations"],
+        "max_stations": front_stats["max_stations"],
+        "solver_iterations_total": front_stats["solver_iterations_total"],
+        "solver_iterations_mean": front_stats["solver_iterations_mean"],
+        "solver_iterations_max": front_stats["solver_iterations_max"],
         "total_cpu_s": round(total_cpu, 2),
         "gap_mean_pct": round(sum(gaps) / len(gaps), 4) if gaps else None,
         "gap_max_pct": round(max(gaps), 4) if gaps else None,
@@ -399,7 +437,10 @@ MASTER_FIELDS = [
     # Fixed params (recorded for traceability)
     "R_e", "C_c", "T", "factor_granularity", "seed",
     # Result summary
-    "status", "n_pareto", "n_certified", "total_cpu_s",
+    "status", "n_pareto", "n_certified",
+    "min_stations", "max_stations",
+    "solver_iterations_total", "solver_iterations_mean", "solver_iterations_max",
+    "total_cpu_s",
     # Pareto range
     "min_cost", "max_cost", "min_energy", "max_energy",
     "cost_range", "energy_range",
@@ -448,6 +489,7 @@ def build_master_row(
     granularity = inst.factor_granularity if inst else factor_granularity
 
     effective_T = inst.T if inst else T
+    front_stats = summarize_front(pareto_points)
 
     row = {
         "run_name": run_name,
@@ -477,6 +519,11 @@ def build_master_row(
         "seed": seed,
         "status": status,
         "n_pareto": len(pareto_points),
+        "min_stations": front_stats["min_stations"],
+        "max_stations": front_stats["max_stations"],
+        "solver_iterations_total": front_stats["solver_iterations_total"],
+        "solver_iterations_mean": front_stats["solver_iterations_mean"],
+        "solver_iterations_max": front_stats["solver_iterations_max"],
         "total_cpu_s": round(total_cpu, 2),
     }
 

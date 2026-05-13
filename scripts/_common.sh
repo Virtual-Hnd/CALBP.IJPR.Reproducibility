@@ -44,6 +44,22 @@ resolve_cplex_cmd() {
     done
   fi
 
+  for candidate in \
+    "/Users/admin/Applications/CPLEX_Studio2212/cplex/bin/arm64_osx/cplex" \
+    "/Applications/CPLEX_Studio2212/cplex/bin/arm64_osx/cplex" \
+    "/Applications/CPLEX_Studio2212/cplex/bin/x86-64_osx/cplex" \
+    "/Applications/CPLEX_Studio2211/cplex/bin/arm64_osx/cplex" \
+    "/Applications/CPLEX_Studio2211/cplex/bin/x86-64_osx/cplex" \
+    "/home/hind.bahir/CPLEX_Studio2211/cplex/bin/x86-64_linux/cplex" \
+    "/opt/ibm/ILOG/CPLEX_Studio2212/cplex/bin/x86-64_linux/cplex" \
+    "/opt/ibm/ILOG/CPLEX_Studio2211/cplex/bin/x86-64_linux/cplex"
+  do
+    if [ -x "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
   if command -v cplex >/dev/null 2>&1; then
     command -v cplex
     return 0

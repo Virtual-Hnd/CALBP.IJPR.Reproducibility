@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Archive Dashboard HTML</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 40px auto;
+      max-width: 900px;
+      padding: 0 20px;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 24px;
+      box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
+    }
+    h1 { margin-top: 0; }
+    ul { line-height: 1.9; }
+    a { color: #1d4ed8; text-decoration: none; font-weight: 600; }
+    a:hover { text-decoration: underline; }
+    code {
+      background: #eef2ff;
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Archive Dashboard HTML</h1>
+    <p>Standalone HTML exports for the upgraded archive snapshots.</p>
+    <p><a href="html/all_campaigns.html">Open the unified dashboard with all campaigns</a></p>
+    <ul>
+      <li><a href="html/results_doe_L9.html">results_doe_L9</a></li>
+<li><a href="html/results_doe_archive_l9_252.html">results_doe_archive_l9_252</a></li>
+<li><a href="html/results_doe_otto_l9.html">results_doe_otto_l9</a></li>
+<li><a href="html/results_doe_scholl_l36.html">results_doe_scholl_l36</a></li>
+<li><a href="html/results_doe_scholl_l9.html">results_doe_scholl_l9</a></li>
+    </ul>
+    <p>You can also launch the live Python server version with <code>./launch_dashboard.sh &lt;campaign&gt;</code>.</p>
+  </div>
+</body>
+</html>

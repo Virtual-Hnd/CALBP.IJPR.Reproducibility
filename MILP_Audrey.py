@@ -367,7 +367,7 @@ def _find_cplex():
 
 
 def _parse_cplex_log(log_path):
-    lb = ub = gap_pct = n_nodes = None
+    lb = ub = gap_pct = n_nodes = solver_iterations = None
     certified = False
     try:
         with open(log_path, 'r', errors='ignore') as f:
@@ -401,13 +401,24 @@ def _parse_cplex_log(log_path):
                             lb = val
                             if gap_pct is None: gap_pct = gc
                     except: pass
+            if solver_iterations is None and 'Solution time =' in ln and 'Iterations =' in ln and 'Nodes =' in ln:
+                try:
+                    match = re.search(r"Iterations\s*=\s*([0-9,]+)", ln)
+                    if match:
+                        solver_iterations = int(match.group(1).replace(',', ''))
+                except:
+                    pass
             if n_nodes is None and 'Nodes =' in ln:
-                try: n_nodes = int(ln.split('Nodes =')[1].strip().split()[0])
-                except: pass
+                try:
+                    match = re.search(r"Nodes\s*=\s*([0-9,]+)", ln)
+                    if match:
+                        n_nodes = int(match.group(1).replace(',', ''))
+                except:
+                    pass
             if 'Integer optimal' in ln:
                 certified = True
     except: pass
-    return lb, ub, gap_pct, n_nodes, certified
+    return lb, ub, gap_pct, n_nodes, solver_iterations, certified
 
 
 def solve_model(model, time_limit=3600):
@@ -433,7 +444,7 @@ def solve_model(model, time_limit=3600):
         os.chdir(orig)
 
     obj_val = pulp.value(model.objective)
-    lb, ub, mip_gap, n_nodes, certified = _parse_cplex_log(log_file)
+    lb, ub, mip_gap, n_nodes, solver_iterations, certified = _parse_cplex_log(log_file)
 
     feasible = obj_val is not None
     if feasible:
@@ -447,7 +458,7 @@ def solve_model(model, time_limit=3600):
         mip_gap = 0.0
 
     shutil.rmtree(tmp_dir, ignore_errors=True)
-    return feasible, certified, exec_time, lb, ub, mip_gap, n_nodes
+    return feasible, certified, exec_time, lb, ub, mip_gap, n_nodes, solver_iterations
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -618,7 +629,7 @@ def solve_instance(instance_file, results_dir="results_audrey",
     # Step 1: E=0 extreme point (HI only)
     print(f"\n--- Step 1: E=0 point (HI only) ---")
     m0, x0, o0, zc0 = build_model_zero_energy(data)
-    ok0, cert0, t0, lb0, ub0, gap0, nd0 = solve_model(m0, time_limit)
+    ok0, cert0, t0, lb0, ub0, gap0, nd0, it0 = solve_model(m0, time_limit)
 
     pareto = []
     if ok0:
@@ -639,7 +650,7 @@ def solve_instance(instance_file, results_dir="results_audrey",
             'cost': cost0, 'energy': 0.0, 'stations': stations0,
             'workers': stations0, 'cobots': 0, 'valid': True,
             'certified': cert0, 'lb': lb0, 'ub': ub0, 'mip_gap': gap0,
-            'n_nodes': nd0, 'cpu_point': t0,
+            'n_nodes': nd0, 'solver_iterations': it0, 'cpu_point': t0,
             'energy_tasks': 0.0, 'energy_idle': 0.0, 'cobot_util': None,
             'mode_distrib': {'HI': len(data['J']), 'CI': 0, 'SEH': 0,
                              'SEC': 0, 'SU': 0, 'SIH': 0, 'SIC': 0},
@@ -660,7 +671,7 @@ def solve_instance(instance_file, results_dir="results_audrey",
             data, cur_limit,
             add_C2a=add_C2a, add_C4wy=add_C4wy, add_C5bc=add_C5bc
         )
-        ok, cert, et, lb, ub, gap, nd = solve_model(mdl, time_limit)
+        ok, cert, et, lb, ub, gap, nd, it = solve_model(mdl, time_limit)
 
         if not ok:
             print("    Infeasible — stop")
@@ -676,7 +687,7 @@ def solve_instance(instance_file, results_dir="results_audrey",
         sol = extract_solution(data, x, s, o, w, y, l, r, z_e, z_c)
         sol.update({'valid': len(viols) == 0, 'certified': cert,
                     'lb': lb, 'ub': ub, 'mip_gap': gap, 'n_nodes': nd,
-                    'cpu_point': et})
+                    'solver_iterations': it, 'cpu_point': et})
 
         cert_s = "Cert" if cert else "TL"
         print(f"    C={total_c:.1f} E={total_e:.1f} "
