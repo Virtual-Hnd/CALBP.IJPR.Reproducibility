@@ -1,4 +1,4 @@
-# IJPR DOE Experiments — Audrey Competitive
+# IJPR DOE Experiments
 
 This repository contains the CALBP DOE code, the curated benchmark instances,
 the live monitoring tools, and optional published snapshots of completed runs.
