@@ -1,0 +1,285 @@
+{
+  "points": [
+    {
+      "point_idx": 0,
+      "cost": 160.0,
+      "energy": 0.0,
+      "stations": 4,
+      "workers": 4,
+      "cobots": 0,
+      "certified": true,
+      "cpu_s": 0.011131048202514648,
+      "solver_iterations": 0,
+      "assignments": [
+        {
+          "task": 1,
+          "station": 1,
+          "mode": "HI",
+          "mode_id": 1,
+          "time": 1.0,
+          "energy": 0.0
+        },
+        {
+          "task": 2,
+          "station": 2,
+          "mode": "HI",
+          "mode_id": 1,
+          "time": 5.0,
+          "energy": 0.0
+        },
+        {
+          "task": 3,
+          "station": 3,
+          "mode": "HI",
+          "mode_id": 1,
+          "time": 4.0,
+          "energy": 0.0
+        },
+        {
+          "task": 4,
+          "station": 1,
+          "mode": "HI",
+          "mode_id": 1,
+          "time": 3.0,
+          "energy": 0.0
+        },
+        {
+          "task": 5,
+          "station": 3,
+          "mode": "HI",
+          "mode_id": 1,
+          "time": 5.0,
+          "energy": 0.0
+        },
+        {
+          "task": 6,
+          "station": 4,
+          "mode": "HI",
+          "mode_id": 1,
+          "time": 6.0,
+          "energy": 0.0
+        },
+        {
+          "task": 7,
+          "station": 1,
+          "mode": "HI",
+          "mode_id": 1,
+          "time": 5.0,
+          "energy": 0.0
+        }
+      ],
+      "station_info": [],
+      "mode_distrib": {
+        "HI": 7,
+        "CI": 0,
+        "SEH": 0,
+        "SEC": 0,
+        "SU": 0,
+        "SIH": 0,
+        "SIC": 0
+      }
+    },
+    {
+      "point_idx": 1,
+      "cost": 125.0,
+      "energy": 2.05,
+      "stations": 3,
+      "workers": 3,
+      "cobots": 1,
+      "certified": true,
+      "cpu_s": 0.07755422592163086,
+      "solver_iterations": 182,
+      "assignments": [
+        {
+          "task": 1,
+          "station": 1,
+          "mode": "HI",
+          "mode_id": 1,
+          "time": 1.0,
+          "energy": 0.0
+        },
+        {
+          "task": 2,
+          "station": 1,
+          "mode": "HI",
+          "mode_id": 1,
+          "time": 5.0,
+          "energy": 0.0
+        },
+        {
+          "task": 3,
+          "station": 2,
+          "mode": "HI",
+          "mode_id": 1,
+          "time": 4.0,
+          "energy": 0.0
+        },
+        {
+          "task": 4,
+          "station": 1,
+          "mode": "HI",
+          "mode_id": 1,
+          "time": 3.0,
+          "energy": 0.0
+        },
+        {
+          "task": 5,
+          "station": 2,
+          "mode": "HI",
+          "mode_id": 1,
+          "time": 5.0,
+          "energy": 0.0
+        },
+        {
+          "task": 6,
+          "station": 3,
+          "mode": "SU",
+          "mode_id": 5,
+          "time": 4.0,
+          "energy": 1.0
+        },
+        {
+          "task": 7,
+          "station": 3,
+          "mode": "SU",
+          "mode_id": 5,
+          "time": 4.0,
+          "energy": 1.0
+        }
+      ],
+      "station_info": [
+        {
+          "station": 1,
+          "worker": true,
+          "cobot": false,
+          "idle_time": 0
+        },
+        {
+          "station": 2,
+          "worker": true,
+          "cobot": false,
+          "idle_time": 0
+        },
+        {
+          "station": 3,
+          "worker": true,
+          "cobot": true,
+          "idle_time": 1.0
+        }
+      ],
+      "mode_distrib": {
+        "HI": 5,
+        "CI": 0,
+        "SEH": 0,
+        "SEC": 0,
+        "SU": 2,
+        "SIH": 0,
+        "SIC": 0
+      }
+    },
+    {
+      "point_idx": 2,
+      "cost": 108.0,
+      "energy": 8.450000000000001,
+      "stations": 4,
+      "workers": 2,
+      "cobots": 4,
+      "certified": true,
+      "cpu_s": 0.07766008377075195,
+      "solver_iterations": 156,
+      "assignments": [
+        {
+          "task": 1,
+          "station": 1,
+          "mode": "CI",
+          "mode_id": 2,
+          "time": 3.0,
+          "energy": 1.0
+        },
+        {
+          "task": 2,
+          "station": 3,
+          "mode": "SU",
+          "mode_id": 5,
+          "time": 3.0,
+          "energy": 1.0
+        },
+        {
+          "task": 3,
+          "station": 3,
+          "mode": "SU",
+          "mode_id": 5,
+          "time": 3.0,
+          "energy": 1.0
+        },
+        {
+          "task": 4,
+          "station": 2,
+          "mode": "CI",
+          "mode_id": 2,
+          "time": 7.0,
+          "energy": 2.0
+        },
+        {
+          "task": 5,
+          "station": 3,
+          "mode": "SU",
+          "mode_id": 5,
+          "time": 3.0,
+          "energy": 1.0
+        },
+        {
+          "task": 6,
+          "station": 4,
+          "mode": "SU",
+          "mode_id": 5,
+          "time": 4.0,
+          "energy": 1.0
+        },
+        {
+          "task": 7,
+          "station": 4,
+          "mode": "SU",
+          "mode_id": 5,
+          "time": 4.0,
+          "energy": 1.0
+        }
+      ],
+      "station_info": [
+        {
+          "station": 1,
+          "worker": false,
+          "cobot": true,
+          "idle_time": 6.0
+        },
+        {
+          "station": 2,
+          "worker": false,
+          "cobot": true,
+          "idle_time": 2.0
+        },
+        {
+          "station": 3,
+          "worker": true,
+          "cobot": true,
+          "idle_time": 0
+        },
+        {
+          "station": 4,
+          "worker": true,
+          "cobot": true,
+          "idle_time": 1.0
+        }
+      ],
+      "mode_distrib": {
+        "HI": 0,
+        "CI": 2,
+        "SEH": 0,
+        "SEC": 0,
+        "SU": 5,
+        "SIH": 0,
+        "SIC": 0
+      }
+    }
+  ]
+}

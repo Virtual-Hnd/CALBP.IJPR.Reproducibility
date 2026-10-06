@@ -1,0 +1,7 @@
+step_type,iteration,cost_limit,feasible,stop_reason,dominated,added_to_pareto,removed_existing_points,cost,energy,stations,workers,cobots,valid,certified,lb,ub,mip_gap_pct,n_nodes,solver_iterations,cpu_point_s,energy_tasks,energy_idle,cobot_util,HI,CI,SEH,SEC,SU,SIH,SIC
+E0_HI_only,0,,True,,False,True,0,120.0,0.0,3,3,0,True,True,120.0,120.0,0.0,0,0,0.026467084884643555,0.0,0.0,,20,0,0,0,0,0,0
+epsilon,1,119,True,,False,True,0,94.0,266.5,3,2,2,True,True,266.5,266.5,0.0,49026,1236603,61.266944885253906,232.0,34.5,0.655,7,2,0,0,11,0,0
+epsilon,2,93,True,,False,True,0,90.0,282.1,2,2,2,True,True,282.1,282.1,0.0,222464,3966659,131.74247288703918,269.0,13.100000000000001,0.869,0,0,0,0,20,0,0
+epsilon,3,89,True,,False,True,0,72.0,777.55,4,1,4,True,True,777.55,777.55,0.0,41074,1287237,37.546459913253784,747.0,30.55,0.8473,0,8,0,0,12,0,0
+epsilon,4,71,True,,False,True,0,54.0,1498.6000000000001,6,0,6,True,True,1498.6,1498.6,0.0,941,55333,1.9641871452331543,1491.0,7.6000000000000005,0.9747,0,20,0,0,0,0,0
+epsilon,5,53,False,infeasible,,,0,,,,,,,,,,,,,,,,,,,,,,,

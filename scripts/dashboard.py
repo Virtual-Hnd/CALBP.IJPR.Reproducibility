@@ -29,9 +29,12 @@ ALL_MODES = ["HI", "CI", "SEH", "SEC", "SU", "SIH", "SIC"]
 NUMERIC_FIELDS = {
     "n_tasks", "n_pareto", "n_certified", "config_id",
     "total_cpu_s", "min_cost", "max_cost", "min_energy", "max_energy",
-    "cost_range", "energy_range", "gap_mean_pct", "gap_max_pct",
+    "cost_range", "energy_range", "gap_mean_pct", "gap_median_pct", "gap_max_pct",
     "min_stations", "max_stations",
     "solver_iterations_total", "solver_iterations_mean", "solver_iterations_max",
+    "n_epsilon_iterations", "n_optimal_iterations", "gap_nonoptimal_mean_pct",
+    "n_mode_time_exceeds_T", "n_tasks_with_any_mode_exceeds_T",
+    "max_time_excess_over_T", "max_time_ratio_to_T",
     "pct_HI", "pct_CI", "pct_SEH", "pct_SEC", "pct_SU", "pct_SIH", "pct_SIC",
     "alpha_ci", "beta_su", "gamma_setup", "sigma_si", "R_e", "C_c", "T", "seed",
 }
@@ -94,6 +97,7 @@ def scan_results() -> dict:
                     info = json.loads(info_file.read_text(encoding="utf-8"))
                     cfg = info.get("config", {})
                     ind = info.get("indicators", {})
+                    cta = info.get("cycle_time_audit", {})
                     run_data = {
                         "run_name": run_name,
                         "base_instance": info.get("base_instance"),
@@ -116,6 +120,8 @@ def scan_results() -> dict:
                         "status": info.get("status"),
                         "n_pareto": info.get("n_pareto"),
                         "n_certified": info.get("n_certified"),
+                        "n_epsilon_iterations": info.get("n_epsilon_iterations"),
+                        "n_optimal_iterations": info.get("n_optimal_iterations"),
                         "min_stations": info.get("min_stations"),
                         "max_stations": info.get("max_stations"),
                         "solver_iterations_total": info.get("solver_iterations_total"),
@@ -124,6 +130,10 @@ def scan_results() -> dict:
                         "total_cpu_s": info.get("total_cpu_s"),
                         "gap_mean_pct": info.get("gap_mean_pct"),
                         "gap_max_pct": info.get("gap_max_pct"),
+                        "n_mode_time_exceeds_T": cta.get("n_mode_time_exceeds_T"),
+                        "n_tasks_with_any_mode_exceeds_T": cta.get("n_tasks_with_any_mode_exceeds_T"),
+                        "max_time_excess_over_T": cta.get("max_time_excess_over_T"),
+                        "max_time_ratio_to_T": cta.get("max_time_ratio_to_T"),
                         "timestamp": info.get("timestamp"),
                         # Quality indicators
                         "HV_abs": ind.get("HV_abs"),
@@ -193,6 +203,57 @@ def scan_results() -> dict:
                                 sum(solver_iterations) / len(solver_iterations), 2
                             )
                             rd["solver_iterations_max"] = max(solver_iterations)
+                        if rd.get("n_epsilon_iterations") is None:
+                            # One row per accepted Pareto point plus the final
+                            # infeasible epsilon step in the standard driver.
+                            rd["n_epsilon_iterations"] = len(points) + 1
+                        if rd.get("n_optimal_iterations") is None:
+                            rd["n_optimal_iterations"] = rd.get("n_certified")
+                        gaps = sorted(
+                            float(pt["mip_gap_pct"])
+                            for pt in points
+                            if pt.get("mip_gap_pct") is not None
+                        )
+                        if gaps:
+                            mid = len(gaps) // 2
+                            if len(gaps) % 2:
+                                rd["gap_median_pct"] = round(gaps[mid], 4)
+                            else:
+                                rd["gap_median_pct"] = round((gaps[mid - 1] + gaps[mid]) / 2, 4)
+                except Exception:
+                    pass
+
+            # epsilon_trace.csv -> audit-level iteration metrics
+            trace_files = sorted(d.glob("epsilon_trace*.csv"))
+            if trace_files and run_name in data["runs"]:
+                try:
+                    trace_rows = []
+                    with open(trace_files[0], encoding="utf-8") as f:
+                        for row in csv.DictReader(f):
+                            trace_rows.append({k: _to_num(v) for k, v in row.items()})
+
+                    if trace_rows:
+                        rd = data["runs"][run_name]
+                        rd["n_epsilon_iterations"] = len(trace_rows)
+                        feasible_rows = [
+                            row for row in trace_rows
+                            if str(row.get("feasible")).lower() == "true"
+                        ]
+                        optimal_rows = [
+                            row for row in feasible_rows
+                            if str(row.get("certified")).lower() == "true"
+                        ]
+                        nonoptimal_gaps = [
+                            float(row["mip_gap_pct"])
+                            for row in feasible_rows
+                            if str(row.get("certified")).lower() != "true"
+                            and row.get("mip_gap_pct") is not None
+                        ]
+                        rd["n_optimal_iterations"] = len(optimal_rows)
+                        if nonoptimal_gaps:
+                            rd["gap_nonoptimal_mean_pct"] = round(
+                                sum(nonoptimal_gaps) / len(nonoptimal_gaps), 4
+                            )
                 except Exception:
                     pass
 
@@ -219,6 +280,23 @@ def scan_results() -> dict:
     data["configs"] = sorted(config_set, key=_cfg_sort_key) or DEFAULT_CONFIGS
     data["instances"] = sorted(instance_set)
     data["total_expected"] = len(data["instances"]) * len(data["configs"])
+
+    # Compute dashboard-only median gap for runs loaded from the master CSV.
+    for rn, points in data["pareto_fronts"].items():
+        rd = data["runs"].get(rn)
+        if not rd or rd.get("gap_median_pct") is not None:
+            continue
+        gaps = sorted(
+            float(pt["mip_gap_pct"])
+            for pt in points
+            if pt.get("mip_gap_pct") is not None
+        )
+        if gaps:
+            mid = len(gaps) // 2
+            if len(gaps) % 2:
+                rd["gap_median_pct"] = round(gaps[mid], 4)
+            else:
+                rd["gap_median_pct"] = round((gaps[mid - 1] + gaps[mid]) / 2, 4)
 
     ok = [r for r in data["runs"].values() if r.get("status") == "OK"]
     err = [r for r in data["runs"].values() if r.get("status") not in ("OK", None)]
@@ -915,9 +993,11 @@ function openSidebar(runName) {
   // ── Config params ──
   html += `<div class="sb-section"><h3>Configuration ${run.config_name || ''}</h3><div class="sb-grid">`;
   const params = [
-    ['α (CI)', run.alpha_ci], ['β (SU)', run.beta_su],
-    ['γ (setup)', run.gamma_setup], ['σ (SI)', run.sigma_si],
+    ['α (CI)', run.alpha_level], ['β (SU)', run.beta_level],
+    ['γ (setup)', run.gamma_level], ['σ (SI)', run.sigma_level],
     ['R_e', run.R_e], ['C_c', run.C_c], ['T', run.T], ['Seed', run.seed],
+    ['Mode>T', run.n_mode_time_exceeds_T ?? '—'],
+    ['Tasks Mode>T', run.n_tasks_with_any_mode_exceeds_T ?? '—'],
   ];
   params.forEach(([l, v]) => {
     html += `<div class="sb-item"><span class="sb-label">${l}</span><span class="sb-val">${v != null ? (typeof v==='number' ? v.toFixed(4) : v) : '—'}</span></div>`;
@@ -931,11 +1011,18 @@ function openSidebar(runName) {
     ['Status', `<span class="sb-val ${stCls}">${run.status}</span>`],
     ['Source', run.source || ''], ['Tasks', run.n_tasks],
     ['|PF|', run.n_pareto], ['Optimal', run.n_certified],
+    ['ε iterations', run.n_epsilon_iterations ?? '—'],
+    ['Optimal points', run.n_optimal_iterations ?? run.n_certified ?? '—'],
+    ['CPLEX iter. total', run.solver_iterations_total ?? '—'],
+    ['CPLEX iter. mean', run.solver_iterations_mean != null ? run.solver_iterations_mean.toFixed(1) : '—'],
+    ['CPLEX iter. max', run.solver_iterations_max ?? '—'],
     ['Stations min', run.min_stations ?? '—'],
     ['Stations max', run.max_stations ?? '—'],
     ['CPU', fmtTime(run.total_cpu_s)],
     ['Avg gap', run.gap_mean_pct != null ? run.gap_mean_pct.toFixed(2) + '%' : '—'],
+    ['Median gap', run.gap_median_pct != null ? run.gap_median_pct.toFixed(2) + '%' : '—'],
     ['Max gap', run.gap_max_pct != null ? run.gap_max_pct.toFixed(2) + '%' : '—'],
+    ['Mean non-opt gap', run.gap_nonoptimal_mean_pct != null ? run.gap_nonoptimal_mean_pct.toFixed(2) + '%' : '—'],
   ];
   facts.forEach(([l, v]) => {
     html += `<div class="sb-item"><span class="sb-label">${l}</span><span class="sb-val">${v ?? '—'}</span></div>`;
@@ -980,7 +1067,7 @@ html += `<div class="sb-section"><h3>Mode Distribution</h3><div id="sb-mode-plot
     html += `<div class="sb-section"><h3>Front Points (${pf.length})</h3>`;
     html += '<div style="overflow-x:auto;font-size:.72rem"><table style="border-collapse:collapse;width:100%">';
     html += '<thead><tr style="background:#f8fafc">';
-    ['#','Cost','Energy','Stations','Workers','Cobots','Opt.','Gap%','CPU(s)'].forEach(h =>
+    ['#','Cost','Energy','Stations','Workers','Cobots','Opt.','Gap%','Nodes','CPLEX iter.','CPU(s)'].forEach(h =>
       html += `<th style="padding:4px 6px;border:1px solid var(--border);white-space:nowrap">${h}</th>`);
     html += '</tr></thead><tbody>';
     pf.forEach((p, i) => {
@@ -990,6 +1077,8 @@ html += `<div class="sb-section"><h3>Mode Distribution</h3><div id="sb-mode-plot
       [i, p.cost?.toFixed(1), p.energy?.toFixed(2), p.stations, p.workers, p.cobots,
        `<span style="${certCls};font-weight:600">${cert}</span>`,
        p.mip_gap_pct != null ? p.mip_gap_pct.toFixed(2) : '—',
+       p.n_nodes ?? '—',
+       p.solver_iterations ?? '—',
        p.cpu_s != null ? p.cpu_s.toFixed(1) : '—'
       ].forEach(v => html += `<td style="padding:3px 6px;border:1px solid var(--border);text-align:center">${v ?? ''}</td>`);
       html += '</tr>';
@@ -1678,6 +1767,13 @@ const TBL_COLS = [
     return `<span class="badge ${cls}">${v || '?'}</span>`;
   }},
   {key: 'n_pareto', label: '|PF|', fmt: v => v ?? ''},
+  {key: 'n_epsilon_iterations', label: 'ε iter', fmt: v => v ?? ''},
+  {key: 'n_optimal_iterations', label: 'Opt pts', fmt: v => v ?? ''},
+  {key: 'solver_iterations_total', label: 'CPLEX it tot', fmt: v => v ?? ''},
+  {key: 'solver_iterations_mean', label: 'CPLEX it avg', fmt: v => v != null ? v.toFixed(1) : ''},
+  {key: 'solver_iterations_max', label: 'CPLEX it max', fmt: v => v ?? ''},
+  {key: 'n_mode_time_exceeds_T', label: 'Mode>T', fmt: v => v ?? ''},
+  {key: 'n_tasks_with_any_mode_exceeds_T', label: 'Tasks>T', fmt: v => v ?? ''},
   {key: 'min_stations', label: 'S.min', fmt: v => v ?? ''},
   {key: 'max_stations', label: 'S.max', fmt: v => v ?? ''},
   {key: 'n_certified', label: 'Opt', fmt: v => v ?? ''},
@@ -1686,7 +1782,10 @@ const TBL_COLS = [
   {key: 'spacing', label: 'Spacing', fmt: v => v != null ? v.toFixed(3) : ''},
   {key: 'spread_delta', label: 'Spread', fmt: v => v != null ? v.toFixed(3) : ''},
   {key: 'max_spread', label: 'MaxSpr', fmt: v => v != null ? v.toFixed(1) : ''},
-  {key: 'gap_mean_pct', label: 'Gap%', fmt: v => v != null ? v.toFixed(2) : ''},
+  {key: 'gap_mean_pct', label: 'Avg Gap%', fmt: v => v != null ? v.toFixed(2) : ''},
+  {key: 'gap_median_pct', label: 'Gap med', fmt: v => v != null ? v.toFixed(2) : ''},
+  {key: 'gap_max_pct', label: 'Max Gap%', fmt: v => v != null ? v.toFixed(2) : ''},
+  {key: 'gap_nonoptimal_mean_pct', label: 'Mean non-opt Gap%', fmt: v => v != null ? v.toFixed(2) : ''},
   {key: 'min_cost', label: 'C.min', fmt: v => v != null ? v.toFixed(1) : ''},
   {key: 'max_energy', label: 'E.max', fmt: v => v != null ? v.toFixed(2) : ''},
 ];

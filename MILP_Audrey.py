@@ -22,7 +22,7 @@ Usage:
 
 import pulp
 from pulp import CPLEX_CMD
-import re, os, sys, time, math, tempfile, shutil
+import csv, re, os, sys, time, math, tempfile, shutil
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -457,6 +457,12 @@ def solve_model(model, time_limit=3600):
     if mip_gap is not None and abs(mip_gap) < 1e-6:
         mip_gap = 0.0
 
+    if os.environ.get("KEEP_CPLEX_LOGS") == "1":
+        log_dir = os.environ.get("CPLEX_LOG_DIR")
+        if log_dir and os.path.exists(log_file):
+            os.makedirs(log_dir, exist_ok=True)
+            shutil.copy2(log_file, os.path.join(log_dir, os.path.basename(log_file)))
+
     shutil.rmtree(tmp_dir, ignore_errors=True)
     return feasible, certified, exec_time, lb, ub, mip_gap, n_nodes, solver_iterations
 
@@ -605,6 +611,72 @@ def solve_instance(instance_file, results_dir="results_audrey",
     """Run ε-constraint and return Pareto front list."""
     total_start = time.time()
     instance_name = os.path.splitext(os.path.basename(instance_file))[0]
+    audit_enabled = os.environ.get("AUDIT_EPSILON_TRACE") == "1"
+    audit_rows = []
+
+    def _mode_val(sol, mode):
+        return (sol.get("mode_distrib") or {}).get(mode, "")
+
+    def _audit_row(step_type, iteration, cost_limit, feasible, sol=None,
+                   dominated="", added_to_pareto="", removed_count=0,
+                   stop_reason=""):
+        if not audit_enabled:
+            return
+        sol = sol or {}
+        audit_rows.append({
+            "step_type": step_type,
+            "iteration": iteration,
+            "cost_limit": cost_limit if cost_limit is not None else "",
+            "feasible": feasible,
+            "stop_reason": stop_reason,
+            "dominated": dominated,
+            "added_to_pareto": added_to_pareto,
+            "removed_existing_points": removed_count,
+            "cost": sol.get("cost", ""),
+            "energy": sol.get("energy", ""),
+            "stations": sol.get("stations", ""),
+            "workers": sol.get("workers", ""),
+            "cobots": sol.get("cobots", ""),
+            "valid": sol.get("valid", ""),
+            "certified": sol.get("certified", ""),
+            "lb": sol.get("lb", ""),
+            "ub": sol.get("ub", ""),
+            "mip_gap_pct": sol.get("mip_gap", ""),
+            "n_nodes": sol.get("n_nodes", ""),
+            "solver_iterations": sol.get("solver_iterations", ""),
+            "cpu_point_s": sol.get("cpu_point", ""),
+            "energy_tasks": sol.get("energy_tasks", ""),
+            "energy_idle": sol.get("energy_idle", ""),
+            "cobot_util": sol.get("cobot_util", ""),
+            "HI": _mode_val(sol, "HI"),
+            "CI": _mode_val(sol, "CI"),
+            "SEH": _mode_val(sol, "SEH"),
+            "SEC": _mode_val(sol, "SEC"),
+            "SU": _mode_val(sol, "SU"),
+            "SIH": _mode_val(sol, "SIH"),
+            "SIC": _mode_val(sol, "SIC"),
+        })
+
+    def _write_audit():
+        if not audit_enabled:
+            return
+        out_dir = os.environ.get("EPSILON_TRACE_DIR") or results_dir
+        if not out_dir:
+            return
+        os.makedirs(out_dir, exist_ok=True)
+        out_file = os.path.join(out_dir, "epsilon_trace.csv")
+        fieldnames = [
+            "step_type", "iteration", "cost_limit", "feasible", "stop_reason",
+            "dominated", "added_to_pareto", "removed_existing_points",
+            "cost", "energy", "stations", "workers", "cobots", "valid",
+            "certified", "lb", "ub", "mip_gap_pct", "n_nodes",
+            "solver_iterations", "cpu_point_s", "energy_tasks", "energy_idle",
+            "cobot_util", "HI", "CI", "SEH", "SEC", "SU", "SIH", "SIC",
+        ]
+        with open(out_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(audit_rows)
 
     print(f"\n{'='*60}")
     print(f"  CALBP Audrey — {instance_name}")
@@ -656,9 +728,12 @@ def solve_instance(instance_file, results_dir="results_audrey",
                              'SEC': 0, 'SU': 0, 'SIH': 0, 'SIC': 0},
             'assignments': asgn0,
         })
+        _audit_row("E0_HI_only", 0, None, True, pareto[-1],
+                   dominated=False, added_to_pareto=True)
         cur_limit = int(cost0 - epsilon)
     else:
         print("  No E=0 solution")
+        _audit_row("E0_HI_only", 0, None, False, stop_reason="no_E0_solution")
         cur_limit = int(len(data['K']) * (C_s + C_w + C_c))
 
     # Step 2: ε-constraint
@@ -675,12 +750,14 @@ def solve_instance(instance_file, results_dir="results_audrey",
 
         if not ok:
             print("    Infeasible — stop")
+            _audit_row("epsilon", idx, cur_limit, False, stop_reason="infeasible")
             break
 
         total_e = pulp.value(z_e)
         total_c = pulp.value(z_c)
         if total_e is None or total_c is None:
             print("    No incumbent — stop")
+            _audit_row("epsilon", idx, cur_limit, False, stop_reason="no_incumbent")
             break
 
         viols, obj = verify_solution(data, x, s, o, w, y, l, r)
@@ -712,8 +789,13 @@ def solve_instance(instance_file, results_dir="results_audrey",
             rm = before - len(pareto)
             if rm: print(f"    removed {rm} dominated point(s)")
             pareto.append(sol)
+            _audit_row("epsilon", idx, cur_limit, True, sol,
+                       dominated=False, added_to_pareto=True,
+                       removed_count=rm)
         else:
             print(f"    dominated — skip")
+            _audit_row("epsilon", idx, cur_limit, True, sol,
+                       dominated=True, added_to_pareto=False)
 
         idx += 1
         cur_limit = int(total_c - epsilon)
@@ -729,6 +811,8 @@ def solve_instance(instance_file, results_dir="results_audrey",
               f"cert={c}  gap={p.get('mip_gap')}%  "
               f"modes={p['mode_distrib']}")
     print(f"\n  Total time: {time.time()-total_start:.1f}s\n")
+
+    _write_audit()
 
     return pareto
 

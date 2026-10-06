@@ -192,6 +192,33 @@ def collect_benchmark() -> list[tuple[str, Path, str]]:
     return instances
 
 
+def collect_requested_instances(names: list[str]) -> list[tuple[str, Path, str]]:
+    """
+    Resolve an explicit --instances list against all available instance files.
+
+    The default benchmark remains fixed through collect_benchmark(); this helper
+    is only used when the user explicitly names instances to run.
+    """
+    instances = []
+    seen = set()
+
+    for name in names:
+        candidates = [
+            (SCHOLL_TXT_DIR / f"{name}.txt", "Scholl"),
+            (OTTO_TXT_DIR / f"{name}.txt", "Otto"),
+        ]
+        for path, source in candidates:
+            if path.exists():
+                if name not in seen:
+                    instances.append((name, path, source))
+                    seen.add(name)
+                break
+        else:
+            print(f"[WARN] Requested instance not found: {name}")
+
+    return instances
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Instance generation
 # ═══════════════════════════════════════════════════════════════════════
@@ -226,16 +253,56 @@ def generate_instance(
         C_c_level=scenario.C_c_level,
     )
 
-    # Ensure T covers all mode times
-    max_time = max(
-        inst.t_jm[(j, m)] for j in inst.tasks for m in ALL_MODE_NAMES
-    )
-    if max_time > inst.T:
-        inst.T = float(max_time) * 1.05
-
     write_txt(inst, output_path)
     write_json(inst, output_path.with_suffix(".json"))
+    write_mode_time_exceedance_report(inst, output_path.with_name("mode_time_exceeds_T.csv"))
     return inst
+
+
+def mode_time_exceedances(inst: CALInstance) -> list[dict]:
+    """Return task-mode pairs whose generated processing time exceeds T."""
+    rows = []
+    for j in inst.tasks:
+        for m in ALL_MODE_NAMES:
+            t = inst.t_jm[(j, m)]
+            if t > inst.T:
+                rows.append({
+                    "task": j,
+                    "mode": m,
+                    "time": t,
+                    "T": inst.T,
+                    "excess": round(t - inst.T, 6),
+                    "ratio_to_T": round(t / inst.T, 6) if inst.T else "",
+                })
+    return rows
+
+
+def mode_time_exceedance_summary(inst: CALInstance) -> dict:
+    """Summarize mode-time exceedances for reporting and dashboards."""
+    rows = mode_time_exceedances(inst)
+    by_mode = defaultdict(int)
+    for row in rows:
+        by_mode[row["mode"]] += 1
+    max_excess = max((row["excess"] for row in rows), default=0)
+    max_ratio = max((row["ratio_to_T"] for row in rows), default=0)
+    return {
+        "n_mode_time_exceeds_T": len(rows),
+        "n_tasks_with_any_mode_exceeds_T": len({row["task"] for row in rows}),
+        "max_time_excess_over_T": round(max_excess, 6),
+        "max_time_ratio_to_T": round(max_ratio, 6),
+        "mode_time_exceeds_T_by_mode": dict(sorted(by_mode.items())),
+    }
+
+
+def write_mode_time_exceedance_report(inst: CALInstance, path: Path) -> None:
+    """Write a CSV audit of task-mode times that exceed the fixed cycle time."""
+    rows = mode_time_exceedances(inst)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = ["task", "mode", "time", "T", "excess", "ratio_to_T"]
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -371,6 +438,7 @@ def save_run_info(
         "source": source,
         "n_tasks": n_tasks,
         "T": inst.T,
+        "cycle_time_audit": mode_time_exceedance_summary(inst),
         "config": {
             "config_name": scenario.config_name,
             "config_id": scenario.config_id,
@@ -436,6 +504,9 @@ MASTER_FIELDS = [
     "alpha_ci_std", "beta_su_std", "gamma_setup_std", "sigma_si_std",
     # Fixed params (recorded for traceability)
     "R_e", "C_c", "T", "factor_granularity", "seed",
+    # Cycle-time compatibility audit
+    "n_mode_time_exceeds_T", "n_tasks_with_any_mode_exceeds_T",
+    "max_time_excess_over_T", "max_time_ratio_to_T",
     # Result summary
     "status", "n_pareto", "n_certified",
     "min_stations", "max_stations",
@@ -490,6 +561,16 @@ def build_master_row(
 
     effective_T = inst.T if inst else T
     front_stats = summarize_front(pareto_points)
+    exceed_summary = (
+        mode_time_exceedance_summary(inst)
+        if inst is not None
+        else {
+            "n_mode_time_exceeds_T": "",
+            "n_tasks_with_any_mode_exceeds_T": "",
+            "max_time_excess_over_T": "",
+            "max_time_ratio_to_T": "",
+        }
+    )
 
     row = {
         "run_name": run_name,
@@ -517,6 +598,10 @@ def build_master_row(
         "T": effective_T,
         "factor_granularity": granularity,
         "seed": seed,
+        "n_mode_time_exceeds_T": exceed_summary["n_mode_time_exceeds_T"],
+        "n_tasks_with_any_mode_exceeds_T": exceed_summary["n_tasks_with_any_mode_exceeds_T"],
+        "max_time_excess_over_T": exceed_summary["max_time_excess_over_T"],
+        "max_time_ratio_to_T": exceed_summary["max_time_ratio_to_T"],
         "status": status,
         "n_pareto": len(pareto_points),
         "min_stations": front_stats["min_stations"],
@@ -626,12 +711,10 @@ def run_doe(args):
         print(f"[DOE] Filtered to configs: {[s.config_name for s in scenarios]}")
 
     # ── 2. Collect benchmark instances ────────────────────────────
-    all_instances = collect_benchmark()
-
-    # Filter instances
     if args.instances:
-        inst_set = set(args.instances)
-        all_instances = [(n, p, s) for n, p, s in all_instances if n in inst_set]
+        all_instances = collect_requested_instances(args.instances)
+    else:
+        all_instances = collect_benchmark()
 
     if args.smoke:
         # Quick test: first config × smallest Scholl instance
@@ -751,6 +834,9 @@ def run_doe(args):
 
             # ── 4c. Solve with MILP ───────────────────────────────
             t0 = time.time()
+            prev_cplex_log_dir = os.environ.get("CPLEX_LOG_DIR")
+            if os.environ.get("KEEP_CPLEX_LOGS") == "1":
+                os.environ["CPLEX_LOG_DIR"] = str(sol_dir / "cplex_logs")
             try:
                 pareto_points = _milp.solve_instance(
                     str(inst_path),
@@ -770,6 +856,11 @@ def run_doe(args):
                 status = "ERROR"
             else:
                 _err_msg = None
+            finally:
+                if prev_cplex_log_dir is None:
+                    os.environ.pop("CPLEX_LOG_DIR", None)
+                else:
+                    os.environ["CPLEX_LOG_DIR"] = prev_cplex_log_dir
             total_cpu = time.time() - t0
 
             if not pareto_points:
